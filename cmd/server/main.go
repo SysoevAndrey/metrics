@@ -23,5 +23,5 @@ func run() error {
 	mux := http.NewServeMux()
 	mux.Handle("POST /update/{type}/{name}/{value}", updateHandler)
 
-	return http.ListenAndServe(`:8080`, handlers.WithPathValidation(mux))
+	return http.ListenAndServe(`:8080`, mux)
 }
