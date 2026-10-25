@@ -74,7 +74,7 @@ func TestUpdateHandler_updateMetric(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := UpdateHandler{Storage: tt.storage}
+			h := NewUpdateHandler(tt.storage)
 			err := h.updateMetric(tt.params.metricType, tt.params.metricName, tt.params.metricRawValue)
 
 			if tt.wantErr {
@@ -113,7 +113,7 @@ func TestUpdateHandler_ServeHTTP(t *testing.T) {
 			request.Header.Set("Content-Type", tt.contentType)
 
 			w := httptest.NewRecorder()
-			h := UpdateHandler{Storage: repositories.NewMemStorage()}
+			h := NewUpdateHandler(repositories.NewMemStorage())
 
 			r := chi.NewRouter()
 			r.Post("/update/{type}/{name}/{value}", h.ServeHTTP)

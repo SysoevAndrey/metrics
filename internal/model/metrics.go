@@ -5,6 +5,11 @@ const (
 	Gauge   = "gauge"
 )
 
+type Snapshot struct {
+	Gauges   map[string]float64
+	Counters map[string]int64
+}
+
 // NOTE: Не усложняем пример, вводя иерархическую вложенность структур.
 // Органичиваясь плоской моделью.
 // Delta и Value объявлены через указатели,
