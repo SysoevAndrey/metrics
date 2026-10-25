@@ -17,12 +17,19 @@ func main() {
 func run() error {
 	ms := repositories.NewMemStorage()
 
-	updateHandler := handlers.UpdateHandler{
-		Storage: ms,
+	indexHandler, err := handlers.NewIndexHandler(ms)
+	if err != nil {
+		return err
 	}
+
+	valueHandler := handlers.NewValueHandler(ms)
+	updateHandler := handlers.NewUpdateHandler(ms)
 
 	r := chi.NewRouter()
 	r.Use(handlers.WithPathValidation)
+
+	r.Get("/", indexHandler.ServeHTTP)
+	r.Get("/value/{type}/{name}", valueHandler.ServeHTTP)
 	r.Post("/update/{type}/{name}/{value}", updateHandler.ServeHTTP)
 
 	return http.ListenAndServe(`:8080`, r)

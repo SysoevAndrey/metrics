@@ -10,16 +10,12 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-type MetricStorage interface {
-	SetGauge(name string, value float64)
-	AddCounter(name string, value int64)
-
-	GetGauge(name string) (float64, bool)
-	GetCounter(name string) (int64, bool)
+type UpdateHandler struct {
+	storage MetricStorage
 }
 
-type UpdateHandler struct {
-	Storage MetricStorage
+func NewUpdateHandler(storage MetricStorage) *UpdateHandler {
+	return &UpdateHandler{storage: storage}
 }
 
 func (h UpdateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -61,13 +57,13 @@ func (h UpdateHandler) updateMetric(metricType, metricName, metricRawValue strin
 		if err != nil {
 			return err
 		}
-		h.Storage.AddCounter(metricName, value)
+		h.storage.AddCounter(metricName, value)
 	case models.Gauge:
 		value, err := strconv.ParseFloat(metricRawValue, 64)
 		if err != nil {
 			return err
 		}
-		h.Storage.SetGauge(metricName, value)
+		h.storage.SetGauge(metricName, value)
 	default:
 		return fmt.Errorf("unknown metric type: %q", metricType)
 	}

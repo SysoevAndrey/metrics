@@ -1,8 +1,10 @@
 package repositories
 
 import (
+	"reflect"
 	"testing"
 
+	models "github.com/SysoevAndrey/metrics/internal/model"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -76,6 +78,43 @@ func TestMemStorage_AddCounter(t *testing.T) {
 			}
 			ms.AddCounter(tt.key, tt.value)
 			assert.Equal(t, tt.want, ms.counters[tt.key])
+		})
+	}
+}
+
+func TestMemStorage_GetAll(t *testing.T) {
+	tests := []struct {
+		name      string
+		initState state
+		want      models.Snapshot
+	}{
+		{
+			name:      "positive",
+			initState: state{gauges: map[string]float64{"Alloc": 42.3}, counters: map[string]int64{"PollCount": 17}},
+			want:      models.Snapshot{Gauges: map[string]float64{"Alloc": 42.3}, Counters: map[string]int64{"PollCount": 17}},
+		},
+		{
+			name:      "keep separate values",
+			initState: state{gauges: map[string]float64{"PollCount": 42}, counters: map[string]int64{"PollCount": 17}},
+			want:      models.Snapshot{Gauges: map[string]float64{"PollCount": 42}, Counters: map[string]int64{"PollCount": 17}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ms := MemStorage{
+				gauges:   tt.initState.gauges,
+				counters: tt.initState.counters,
+			}
+			sh := ms.GetAll()
+
+			t.Log("========", sh)
+
+			assert.EqualValues(t, tt.want.Gauges, sh.Gauges)
+			assert.EqualValues(t, tt.want.Counters, sh.Counters)
+
+			assert.NotEqual(t, reflect.ValueOf(tt.want.Gauges).Pointer(), reflect.ValueOf(sh.Gauges).Pointer())
+			assert.NotEqual(t, reflect.ValueOf(tt.want.Counters).Pointer(), reflect.ValueOf(sh.Counters).Pointer())
 		})
 	}
 }

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Metrics</title>
+  </head>
+  <body>
+    <h1>Metrics</h1>
+    {{if .Counters}}
+    <ul>
+      <h2>Counters</h2>
+      {{range .Counters}}
+      <li>{{.Key}}: {{.Value}}</li>
+      {{end}}
+    </ul>
+    {{end}} {{if .Gauges}}
+    <ul>
+      <h2>Gauges</h2>
+      {{range .Gauges}}
+      <li>{{.Key}}: {{.Value}}</li>
+      {{end}}
+    </ul>
+    {{end}} {{if and (not .Counters) (not .Gauges)}}
+    <p>No metrics</p>
+    {{end}}
+  </body>
+</html>
