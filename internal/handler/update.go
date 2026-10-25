@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"fmt"
-	"mime"
 	"net/http"
 	"strconv"
 
@@ -19,18 +18,6 @@ func NewUpdateHandler(storage MetricStorage) *UpdateHandler {
 }
 
 func (h UpdateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	if mediaType != "text/plain" {
-		w.WriteHeader(http.StatusUnsupportedMediaType)
-		return
-	}
-
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "name")
 	metricRawValue := chi.URLParam(r, "value")
@@ -40,7 +27,7 @@ func (h UpdateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.updateMetric(metricType, metricName, metricRawValue)
+	err := h.updateMetric(metricType, metricName, metricRawValue)
 
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
