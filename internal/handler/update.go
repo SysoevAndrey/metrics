@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"fmt"
+	"mime"
 	"net/http"
 	"strconv"
 
 	models "github.com/SysoevAndrey/metrics/internal/model"
+	"github.com/go-chi/chi/v5"
 )
 
 type MetricStorage interface {
@@ -21,21 +23,28 @@ type UpdateHandler struct {
 }
 
 func (h UpdateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Content-Type") != "text/plain" {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+
+	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	metricType := r.PathValue("type")
-	metricName := r.PathValue("name")
-	metricRawValue := r.PathValue("value")
+	if mediaType != "text/plain" {
+		w.WriteHeader(http.StatusUnsupportedMediaType)
+		return
+	}
+
+	metricType := chi.URLParam(r, "type")
+	metricName := chi.URLParam(r, "name")
+	metricRawValue := chi.URLParam(r, "value")
 
 	if isEmptyParam(metricType) || isEmptyParam(metricName) || isEmptyParam(metricRawValue) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	err := h.updateMetric(metricType, metricName, metricRawValue)
+	err = h.updateMetric(metricType, metricName, metricRawValue)
 
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)

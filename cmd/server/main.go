@@ -5,6 +5,7 @@ import (
 
 	handlers "github.com/SysoevAndrey/metrics/internal/handler"
 	repositories "github.com/SysoevAndrey/metrics/internal/repository"
+	"github.com/go-chi/chi/v5"
 )
 
 func main() {
@@ -20,8 +21,9 @@ func run() error {
 		Storage: ms,
 	}
 
-	mux := http.NewServeMux()
-	mux.Handle("POST /update/{type}/{name}/{value}", updateHandler)
+	r := chi.NewRouter()
+	r.Use(handlers.WithPathValidation)
+	r.Post("/update/{type}/{name}/{value}", updateHandler.ServeHTTP)
 
-	return http.ListenAndServe(`:8080`, handlers.WithPathValidation(mux))
+	return http.ListenAndServe(`:8080`, r)
 }
