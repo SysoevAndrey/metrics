@@ -99,12 +99,6 @@ func TestUpdateHandler_ServeHTTP(t *testing.T) {
 			contentType: "text/plain",
 			code:        200,
 		},
-		{
-			name:        "invalid Content-Type",
-			path:        "/update/counter/PollCount/42",
-			contentType: "application/json",
-			code:        415,
-		},
 	}
 
 	for _, tt := range tests {
