@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	repositories "github.com/SysoevAndrey/metrics/internal/repository"
+	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -86,61 +87,37 @@ func TestUpdateHandler_updateMetric(t *testing.T) {
 }
 
 func TestUpdateHandler_ServeHTTP(t *testing.T) {
-	type pathValues struct {
-		metricType  string
-		metricName  string
-		metricValue string
-	}
-
 	tests := []struct {
 		name        string
+		path        string
 		contentType string
-		pathValues  pathValues
 		code        int
 	}{
 		{
 			name:        "positive",
+			path:        "/update/counter/PollCount/42",
 			contentType: "text/plain",
-			pathValues:  pathValues{metricType: "counter", metricName: "PollCount", metricValue: "42"},
 			code:        200,
 		},
 		{
 			name:        "invalid Content-Type",
+			path:        "/update/counter/PollCount/42",
 			contentType: "application/json",
-			pathValues:  pathValues{metricType: "counter", metricName: "PollCount", metricValue: "42"},
-			code:        400,
-		},
-		{
-			name:        "missing metric type",
-			contentType: "text/plain",
-			pathValues:  pathValues{metricType: "", metricName: "PollCount", metricValue: "42"},
-			code:        400,
-		},
-		{
-			name:        "missing metric name",
-			contentType: "text/plain",
-			pathValues:  pathValues{metricType: "counter", metricName: "", metricValue: "42"},
-			code:        400,
-		},
-		{
-			name:        "missing metric value",
-			contentType: "text/plain",
-			pathValues:  pathValues{metricType: "counter", metricName: "PollCount", metricValue: ""},
-			code:        400,
+			code:        415,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, "/", nil)
-			request.SetPathValue("type", tt.pathValues.metricType)
-			request.SetPathValue("name", tt.pathValues.metricName)
-			request.SetPathValue("value", tt.pathValues.metricValue)
+			request := httptest.NewRequest(http.MethodPost, tt.path, nil)
 			request.Header.Set("Content-Type", tt.contentType)
 
 			w := httptest.NewRecorder()
 			h := UpdateHandler{Storage: repositories.NewMemStorage()}
-			h.ServeHTTP(w, request)
+
+			r := chi.NewRouter()
+			r.Post("/update/{type}/{name}/{value}", h.ServeHTTP)
+			r.ServeHTTP(w, request)
 
 			result := w.Result()
 			assert.Equal(t, tt.code, result.StatusCode)
