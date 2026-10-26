@@ -81,7 +81,7 @@ func (a *Agent) sendMetrics(client *http.Client, counters map[string]int64, gaug
 
 func (a *Agent) newUpdateRequest(metricType, metricName, metricValue string) (*http.Request, error) {
 	endpoint := fmt.Sprintf("%s/update/%s/%s/%s", a.host, metricType, metricName, metricValue)
-	request, err := http.NewRequest(http.MethodPost, endpoint, nil)
+	request, err := http.NewRequest(http.MethodPost, "http://"+endpoint, nil)
 	if err != nil {
 		return nil, err
 	}

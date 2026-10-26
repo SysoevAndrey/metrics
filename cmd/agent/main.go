@@ -2,11 +2,11 @@ package main
 
 import (
 	"github.com/SysoevAndrey/metrics/internal/agent"
-	config "github.com/SysoevAndrey/metrics/internal/config/agent"
 )
 
 func main() {
-	a := agent.NewAgent(config.PollInterval, config.ReportInterval, config.Host)
+	parseFlags()
+	a := agent.NewAgent(config.pollInterval, config.reportInterval, config.host)
 	err := a.Run()
 	if err != nil {
 		panic(err)
