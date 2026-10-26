@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 
 	handlers "github.com/SysoevAndrey/metrics/internal/handler"
@@ -9,6 +10,8 @@ import (
 )
 
 func main() {
+	parseFlags()
+
 	if err := run(); err != nil {
 		panic(err)
 	}
@@ -30,5 +33,6 @@ func run() error {
 	r.Get("/value/{type}/{name}", valueHandler.ServeHTTP)
 	r.Post("/update/{type}/{name}/{value}", updateHandler.ServeHTTP)
 
-	return http.ListenAndServe(`:8080`, r)
+	fmt.Println("Server started on:", host)
+	return http.ListenAndServe(host, r)
 }
