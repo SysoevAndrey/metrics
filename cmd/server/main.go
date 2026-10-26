@@ -26,8 +26,6 @@ func run() error {
 	updateHandler := handlers.NewUpdateHandler(ms)
 
 	r := chi.NewRouter()
-	r.Use(handlers.WithPathValidation)
-
 	r.Get("/", indexHandler.ServeHTTP)
 	r.Get("/value/{type}/{name}", valueHandler.ServeHTTP)
 	r.Post("/update/{type}/{name}/{value}", updateHandler.ServeHTTP)
