@@ -17,7 +17,7 @@ func NewUpdateHandler(storage MetricStorage) *UpdateHandler {
 	return &UpdateHandler{storage: storage}
 }
 
-func (h UpdateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *UpdateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "name")
 	metricRawValue := chi.URLParam(r, "value")
@@ -37,7 +37,7 @@ func (h UpdateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h UpdateHandler) updateMetric(metricType, metricName, metricRawValue string) error {
+func (h *UpdateHandler) updateMetric(metricType, metricName, metricRawValue string) error {
 	switch metricType {
 	case models.Counter:
 		value, err := strconv.ParseInt(metricRawValue, 10, 64)

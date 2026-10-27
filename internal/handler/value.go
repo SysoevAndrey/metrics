@@ -16,7 +16,7 @@ func NewValueHandler(storage MetricStorage) *ValueHandler {
 	return &ValueHandler{storage: storage}
 }
 
-func (h ValueHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *ValueHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "name")
 
