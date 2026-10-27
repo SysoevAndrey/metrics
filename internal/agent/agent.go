@@ -2,17 +2,27 @@ package agent
 
 import (
 	"fmt"
-	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/go-resty/resty/v2"
 )
 
 type Agent struct {
 	pollInterval   time.Duration
 	reportInterval time.Duration
 	host           string
+	client         *resty.Client
+}
+
+type clientConfig struct {
+	timeout          time.Duration
+	retryCount       int
+	retryWaitTime    time.Duration
+	retryMaxWaitTime time.Duration
 }
 
 func NewAgent(pollInterval, reportInterval time.Duration, host string) *Agent {
@@ -20,15 +30,20 @@ func NewAgent(pollInterval, reportInterval time.Duration, host string) *Agent {
 		pollInterval:   pollInterval,
 		reportInterval: reportInterval,
 		host:           host,
+		client:         resty.New(),
 	}
 }
 
 func (a *Agent) Run() error {
 	var wg sync.WaitGroup
 	collector := newCollector()
-	client := &http.Client{
-		Timeout: 200 * time.Millisecond,
-	}
+
+	a.setupClient(clientConfig{
+		timeout:          200 * time.Millisecond,
+		retryCount:       3,
+		retryWaitTime:    200 * time.Millisecond,
+		retryMaxWaitTime: time.Second,
+	})
 
 	wg.Go(func() {
 		for {
@@ -40,7 +55,7 @@ func (a *Agent) Run() error {
 	wg.Go(func() {
 		for {
 			counters, gauges := collector.GetSnapshot()
-			a.sendMetrics(client, counters, gauges)
+			a.sendMetrics(counters, gauges)
 			time.Sleep(a.reportInterval)
 		}
 	})
@@ -50,13 +65,25 @@ func (a *Agent) Run() error {
 	return nil
 }
 
-func (a *Agent) sendMetrics(client *http.Client, counters map[string]int64, gauges map[string]float64) {
-	type metric struct {
-		t string
-		n string
-		v string
-	}
+func (a *Agent) setupClient(config clientConfig) {
+	a.client.
+		SetBaseURL("http://" + a.host).
+		SetTimeout(config.timeout).
+		SetRetryCount(config.retryCount).
+		SetRetryWaitTime(config.retryWaitTime).
+		SetRetryMaxWaitTime(config.retryMaxWaitTime).
+		AddRetryCondition(func(r *resty.Response, err error) bool {
+			return err != nil || r.StatusCode() >= http.StatusInternalServerError
+		})
+}
 
+type metric struct {
+	t string
+	n string
+	v string
+}
+
+func (a *Agent) sendMetrics(counters map[string]int64, gauges map[string]float64) {
 	metrics := make([]metric, 0, len(counters)+len(gauges))
 
 	for name, value := range counters {
@@ -68,33 +95,24 @@ func (a *Agent) sendMetrics(client *http.Client, counters map[string]int64, gaug
 	}
 
 	for _, m := range metrics {
-		request, err := a.newUpdateRequest(m.t, m.n, m.v)
+		err := a.sendMetric(m)
 		if err != nil {
-			continue
-		}
-		statusCode, err := a.sendUpdateRequest(client, request)
-		if err != nil || !(statusCode >= http.StatusOK && statusCode < http.StatusBadRequest) {
-			return
+			log.Print(err)
 		}
 	}
 }
 
-func (a *Agent) newUpdateRequest(metricType, metricName, metricValue string) (*http.Request, error) {
-	endpoint := fmt.Sprintf("%s/update/%s/%s/%s", a.host, metricType, metricName, metricValue)
-	request, err := http.NewRequest(http.MethodPost, "http://"+endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	request.Header.Add("Content-Type", "text/plain")
-	return request, nil
-}
+func (a *Agent) sendMetric(m metric) error {
+	resp, err := a.client.R().
+		SetPathParams(map[string]string{"t": m.t, "n": m.n, "v": m.v}).
+		SetHeader("Content-Type", "text/plain").
+		Post("/update/{t}/{n}/{v}")
 
-func (a *Agent) sendUpdateRequest(client *http.Client, request *http.Request) (int, error) {
-	response, err := client.Do(request)
 	if err != nil {
-		return 0, err
+		return fmt.Errorf("failed to send %s=%s: %v", m.n, m.v, err)
 	}
-	io.Copy(io.Discard, response.Body)
-	response.Body.Close()
-	return response.StatusCode, nil
+	if resp.IsError() {
+		return fmt.Errorf("failed to send %s=%s: %v", m.n, m.v, resp.Status())
+	}
+	return nil
 }
