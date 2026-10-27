@@ -5,7 +5,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	repositories "github.com/SysoevAndrey/metrics/internal/repository"
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 )
@@ -42,31 +41,31 @@ func TestUpdateHandler_updateMetric(t *testing.T) {
 	}{
 		{
 			name:    "positive #1",
-			storage: repositories.NewMemStorage(),
+			storage: newStorage(),
 			params:  params{metricType: "counter", metricName: "PollCount", metricRawValue: "42"},
 			wantErr: false,
 		},
 		{
 			name:    "positive #2",
-			storage: repositories.NewMemStorage(),
+			storage: newStorage(),
 			params:  params{metricType: "gauge", metricName: "Alloc", metricRawValue: "42"},
 			wantErr: false,
 		},
 		{
 			name:    "type mismatch #1",
-			storage: repositories.NewMemStorage(),
+			storage: newStorage(),
 			params:  params{metricType: "counter", metricName: "Alloc", metricRawValue: "42.17"},
 			wantErr: true,
 		},
 		{
 			name:    "type mismatch #2",
-			storage: repositories.NewMemStorage(),
+			storage: newStorage(),
 			params:  params{metricType: "gauge", metricName: "Alloc", metricRawValue: "one"},
 			wantErr: true,
 		},
 		{
 			name:    "unknown type",
-			storage: repositories.NewMemStorage(),
+			storage: newStorage(),
 			params:  params{metricType: "string", metricName: "Alloc", metricRawValue: "hello"},
 			wantErr: true,
 		},
@@ -87,17 +86,47 @@ func TestUpdateHandler_updateMetric(t *testing.T) {
 }
 
 func TestUpdateHandler_ServeHTTP(t *testing.T) {
+	type want struct {
+		code     int
+		gauges   map[string]float64
+		counters map[string]int64
+	}
+
 	tests := []struct {
 		name        string
 		path        string
 		contentType string
-		code        int
+		want        want
 	}{
 		{
-			name:        "positive",
+			name:        "add counter",
 			path:        "/update/counter/PollCount/42",
 			contentType: "text/plain",
-			code:        200,
+			want: want{
+				code:     200,
+				gauges:   map[string]float64{},
+				counters: map[string]int64{"PollCount": 42},
+			},
+		},
+		{
+			name:        "set gauge",
+			path:        "/update/gauge/Alloc/17.03",
+			contentType: "text/plain",
+			want: want{
+				code:     200,
+				gauges:   map[string]float64{"Alloc": 17.03},
+				counters: map[string]int64{},
+			},
+		},
+		{
+			name:        "bad request",
+			path:        "/update/counter/Alloc/abc",
+			contentType: "text/plain",
+			want: want{
+				code:     400,
+				gauges:   map[string]float64{},
+				counters: map[string]int64{},
+			},
 		},
 	}
 
@@ -107,14 +136,17 @@ func TestUpdateHandler_ServeHTTP(t *testing.T) {
 			request.Header.Set("Content-Type", tt.contentType)
 
 			w := httptest.NewRecorder()
-			h := NewUpdateHandler(repositories.NewMemStorage())
+			s := newStorage()
+			h := NewUpdateHandler(s)
 
 			r := chi.NewRouter()
 			r.Post("/update/{type}/{name}/{value}", h.ServeHTTP)
 			r.ServeHTTP(w, request)
 
 			result := w.Result()
-			assert.Equal(t, tt.code, result.StatusCode)
+			assert.Equal(t, tt.want.code, result.StatusCode)
+			assert.EqualValues(t, tt.want.gauges, s.gauges)
+			assert.EqualValues(t, tt.want.counters, s.counters)
 		})
 	}
 }

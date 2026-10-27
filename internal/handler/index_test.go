@@ -21,12 +21,12 @@ func TestIndexHandler_ServeHTTP(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		initState storage
+		initState *storage
 		want      want
 	}{
 		{
 			name:      "positive",
-			initState: storage{gauges: map[string]float64{"Alloc": 17.3}, counters: map[string]int64{"PollCount": 42}},
+			initState: &storage{gauges: map[string]float64{"Alloc": 17.3}, counters: map[string]int64{"PollCount": 42}},
 			want: want{
 				contentType: "text/html",
 				code:        200,
@@ -36,7 +36,7 @@ func TestIndexHandler_ServeHTTP(t *testing.T) {
 		},
 		{
 			name:      "no metrics",
-			initState: storage{gauges: map[string]float64{}, counters: map[string]int64{}},
+			initState: newStorage(),
 			want: want{
 				contentType: "text/html",
 				code:        200,
