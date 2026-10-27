@@ -108,8 +108,6 @@ func TestMemStorage_GetAll(t *testing.T) {
 			}
 			sh := ms.GetAll()
 
-			t.Log("========", sh)
-
 			assert.EqualValues(t, tt.want.Gauges, sh.Gauges)
 			assert.EqualValues(t, tt.want.Counters, sh.Counters)
 
