@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"embed"
 	"html/template"
 	"net/http"
@@ -37,8 +38,16 @@ func (h *IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Gauges:   sortedGauges,
 	}
 
+	var buf bytes.Buffer
+
+	err := h.tmpl.ExecuteTemplate(&buf, "index.html", d)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	h.tmpl.ExecuteTemplate(w, "index.html", d)
+	w.Write(buf.Bytes())
 }
 
 //go:embed templates
