@@ -1,13 +1,17 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 
 	handlers "github.com/SysoevAndrey/metrics/internal/handler"
 	repositories "github.com/SysoevAndrey/metrics/internal/repository"
+	"github.com/go-chi/chi/v5"
 )
 
 func main() {
+	parseFlags()
+
 	if err := run(); err != nil {
 		panic(err)
 	}
@@ -16,12 +20,19 @@ func main() {
 func run() error {
 	ms := repositories.NewMemStorage()
 
-	updateHandler := handlers.UpdateHandler{
-		Storage: ms,
+	indexHandler, err := handlers.NewIndexHandler(ms)
+	if err != nil {
+		return err
 	}
 
-	mux := http.NewServeMux()
-	mux.Handle("POST /update/{type}/{name}/{value}", updateHandler)
+	valueHandler := handlers.NewValueHandler(ms)
+	updateHandler := handlers.NewUpdateHandler(ms)
 
-	return http.ListenAndServe(`:8080`, handlers.WithPathValidation(mux))
+	r := chi.NewRouter()
+	r.Get("/", indexHandler.ServeHTTP)
+	r.Get("/value/{type}/{name}", valueHandler.ServeHTTP)
+	r.Post("/update/{type}/{name}/{value}", updateHandler.ServeHTTP)
+
+	fmt.Println("Server started on:", host)
+	return http.ListenAndServe(host, r)
 }
