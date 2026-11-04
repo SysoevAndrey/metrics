@@ -33,6 +33,6 @@ func run() error {
 	r.Get("/value/{type}/{name}", valueHandler.ServeHTTP)
 	r.Post("/update/{type}/{name}/{value}", updateHandler.ServeHTTP)
 
-	fmt.Println("Server started on:", host)
-	return http.ListenAndServe(host, r)
+	fmt.Println("Server started on:", config.Host)
+	return http.ListenAndServe(config.Host, r)
 }

@@ -9,9 +9,9 @@ import (
 func main() {
 	parseFlags()
 	a := agent.NewAgent(
-		time.Duration(config.pollInterval)*time.Second,
-		time.Duration(config.reportInterval)*time.Second,
-		config.host,
+		time.Duration(config.PollInterval)*time.Second,
+		time.Duration(config.ReportInterval)*time.Second,
+		config.Host,
 	)
 	err := a.Run()
 	if err != nil {
