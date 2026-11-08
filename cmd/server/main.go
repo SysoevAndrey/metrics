@@ -37,8 +37,14 @@ func run() error {
 	r := chi.NewRouter()
 	r.Use(middleware.WithLogging)
 	r.Get("/", indexHandler.ServeHTTP)
-	r.Get("/value/{type}/{name}", valueHandler.ServeHTTP)
-	r.Post("/update/{type}/{name}/{value}", updateHandler.ServeHTTP)
+	r.Route("/update", func(r chi.Router) {
+		r.Post("/{type}/{name}/{value}", updateHandler.ByPath)
+		r.Post("/", updateHandler.ByBody)
+	})
+	r.Route("/value", func(r chi.Router) {
+		r.Get("/{type}/{name}", valueHandler.ByPath)
+		r.Post("/", valueHandler.ByBody)
+	})
 
 	logger.Log.Info("Server started", zap.String("address", config.Host))
 	return http.ListenAndServe(config.Host, r)
