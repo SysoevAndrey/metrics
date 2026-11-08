@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strconv"
 	"sync"
 	"time"
 
+	models "github.com/SysoevAndrey/metrics/internal/model"
 	"github.com/go-resty/resty/v2"
 )
 
@@ -77,21 +77,15 @@ func (a *Agent) setupClient(config clientConfig) {
 		})
 }
 
-type metric struct {
-	t string
-	n string
-	v string
-}
-
 func (a *Agent) sendMetrics(counters map[string]int64, gauges map[string]float64) {
-	metrics := make([]metric, 0, len(counters)+len(gauges))
+	metrics := make([]models.Metrics, 0, len(counters)+len(gauges))
 
 	for name, value := range counters {
-		metrics = append(metrics, metric{t: "counter", n: name, v: strconv.FormatInt(value, 10)})
+		metrics = append(metrics, models.Metrics{ID: name, MType: models.Counter, Delta: &value})
 	}
 
 	for name, value := range gauges {
-		metrics = append(metrics, metric{t: "gauge", n: name, v: strconv.FormatFloat(value, 'f', -1, 64)})
+		metrics = append(metrics, models.Metrics{ID: name, MType: models.Gauge, Value: &value})
 	}
 
 	for _, m := range metrics {
@@ -102,17 +96,17 @@ func (a *Agent) sendMetrics(counters map[string]int64, gauges map[string]float64
 	}
 }
 
-func (a *Agent) sendMetric(m metric) error {
+func (a *Agent) sendMetric(m models.Metrics) error {
 	resp, err := a.client.R().
-		SetPathParams(map[string]string{"t": m.t, "n": m.n, "v": m.v}).
-		SetHeader("Content-Type", "text/plain").
-		Post("/update/{t}/{n}/{v}")
+		SetHeader("Content-Type", "application/json").
+		SetBody(m).
+		Post("/update")
 
 	if err != nil {
-		return fmt.Errorf("failed to send %s=%s: %v", m.n, m.v, err)
+		return fmt.Errorf("failed to send %s: %v", m.ID, err)
 	}
 	if resp.IsError() {
-		return fmt.Errorf("failed to send %s=%s: %v", m.n, m.v, resp.Status())
+		return fmt.Errorf("failed to send %s: %v", m.ID, resp.Status())
 	}
 	return nil
 }
