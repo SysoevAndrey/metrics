@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -97,9 +100,24 @@ func (a *Agent) sendMetrics(counters map[string]int64, gauges map[string]float64
 }
 
 func (a *Agent) sendMetric(m models.Metrics) error {
+	bodyRaw, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+
+	buf := bytes.NewBuffer(nil)
+	zw := gzip.NewWriter(buf)
+	if _, err = zw.Write(bodyRaw); err != nil {
+		return err
+	}
+	if err = zw.Close(); err != nil {
+		return err
+	}
+
 	resp, err := a.client.R().
 		SetHeader("Content-Type", "application/json").
-		SetBody(m).
+		SetHeader("Content-Encoding", "gzip").
+		SetBody(buf.Bytes()).
 		Post("/update")
 
 	if err != nil {

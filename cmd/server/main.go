@@ -36,6 +36,7 @@ func run() error {
 
 	r := chi.NewRouter()
 	r.Use(middleware.WithLogging)
+	r.Use(middleware.WithCompression)
 	r.Get("/", indexHandler.ServeHTTP)
 	r.Route("/update", func(r chi.Router) {
 		r.Post("/{type}/{name}/{value}", updateHandler.ByPath)
