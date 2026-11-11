@@ -2,11 +2,13 @@ package main
 
 import (
 	"net/http"
+	"time"
 
 	handlers "github.com/SysoevAndrey/metrics/internal/handler"
 	"github.com/SysoevAndrey/metrics/internal/handler/middleware"
 	"github.com/SysoevAndrey/metrics/internal/logger"
 	repositories "github.com/SysoevAndrey/metrics/internal/repository"
+	services "github.com/SysoevAndrey/metrics/internal/service"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
@@ -25,6 +27,20 @@ func run() error {
 	}
 
 	ms := repositories.NewMemStorage()
+	fs, err := repositories.NewFileStorage(config.FileStoragePath)
+	if err != nil {
+		return err
+	}
+
+	bc := services.BackupConfig{
+		Restore:       config.Restore,
+		StoreInterval: time.Duration(config.StoreInterval) * time.Second,
+	}
+	b := services.NewBackup(ms, fs, bc)
+	if err := b.SeedRuntimeStorageIfNeeded(); err != nil {
+		logger.Log.Error("failed to seed runtime storage", zap.Error(err))
+	}
+	go b.SetupPersistentStorageUpdateIfNeeded()
 
 	indexHandler, err := handlers.NewIndexHandler(ms)
 	if err != nil {
@@ -39,6 +55,7 @@ func run() error {
 	r.Use(middleware.WithCompression)
 	r.Get("/", indexHandler.ServeHTTP)
 	r.Route("/update", func(r chi.Router) {
+		r.Use(middleware.WithPostHook(b.CreateSnapshotIfNeeded))
 		r.Post("/{type}/{name}/{value}", updateHandler.ByPath)
 		r.Post("/", updateHandler.ByBody)
 	})
