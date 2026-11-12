@@ -98,7 +98,7 @@ func TestAgent_sendMetric(t *testing.T) {
 
 			agent := NewAgent(0, 0, host)
 			agent.setupClient(testClientConfig)
-			err := agent.sendMetric(models.Metrics{ID: "PollCount", MType: models.Counter, Delta: new(int64(52))})
+			err := agent.sendMetric(models.Metrics{ID: "PollCount", MType: models.Counter, Delta: new(int64(42))})
 
 			assert.Equal(t, tt.wantCalls, calls)
 
