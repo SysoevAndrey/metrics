@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	models "github.com/SysoevAndrey/metrics/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -97,7 +98,7 @@ func TestAgent_sendMetric(t *testing.T) {
 
 			agent := NewAgent(0, 0, host)
 			agent.setupClient(testClientConfig)
-			err := agent.sendMetric(metric{t: "counter", n: "PollCount", v: "42"})
+			err := agent.sendMetric(models.Metrics{ID: "PollCount", MType: models.Counter, Delta: new(int64(42))})
 
 			assert.Equal(t, tt.wantCalls, calls)
 
