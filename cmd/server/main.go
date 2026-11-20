@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
 	"time"
@@ -11,6 +12,7 @@ import (
 	repositories "github.com/SysoevAndrey/metrics/internal/repository"
 	services "github.com/SysoevAndrey/metrics/internal/service"
 	"github.com/go-chi/chi/v5"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 )
 
@@ -28,6 +30,12 @@ func run() error {
 	if err := logger.Initialize(config.LogLevel); err != nil {
 		return err
 	}
+
+	db, err := sql.Open("pgx", config.DatabaseDSN)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
 
 	ms := repositories.NewMemStorage()
 	fs, err := repositories.NewFileStorage(config.FileStoragePath)
@@ -52,16 +60,22 @@ func run() error {
 
 	valueHandler := handlers.NewValueHandler(ms)
 	updateHandler := handlers.NewUpdateHandler(ms)
+	pingHandler := handlers.NewPingHandler(db)
 
 	r := chi.NewRouter()
+
 	r.Use(middleware.WithLogging)
 	r.Use(middleware.WithCompression)
+
 	r.Get("/", indexHandler.ServeHTTP)
+	r.Get("/ping", pingHandler.Ping)
+
 	r.Route("/update", func(r chi.Router) {
 		r.Use(middleware.WithPostHook(b.CreateSnapshotIfNeeded))
 		r.Post("/{type}/{name}/{value}", updateHandler.ByPath)
 		r.Post("/", updateHandler.ByBody)
 	})
+
 	r.Route("/value", func(r chi.Router) {
 		r.Get("/{type}/{name}", valueHandler.ByPath)
 		r.Post("/", valueHandler.ByBody)
