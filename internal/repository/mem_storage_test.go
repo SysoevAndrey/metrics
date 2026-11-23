@@ -6,6 +6,7 @@ import (
 
 	models "github.com/SysoevAndrey/metrics/internal/model"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type state struct {
@@ -40,7 +41,7 @@ func TestMemStorage_SetGauge(t *testing.T) {
 				gauges:   tt.initState.gauges,
 				counters: tt.initState.counters,
 			}
-			ms.SetGauge(tt.key, tt.value)
+			ms.SetGauge(t.Context(), tt.key, tt.value)
 			assert.Equal(t, tt.value, ms.gauges[tt.key])
 		})
 	}
@@ -76,7 +77,7 @@ func TestMemStorage_AddCounter(t *testing.T) {
 				gauges:   tt.initState.gauges,
 				counters: tt.initState.counters,
 			}
-			ms.AddCounter(tt.key, tt.value)
+			ms.AddCounter(t.Context(), tt.key, tt.value)
 			assert.Equal(t, tt.want, ms.counters[tt.key])
 		})
 	}
@@ -106,7 +107,8 @@ func TestMemStorage_GetAll(t *testing.T) {
 				gauges:   tt.initState.gauges,
 				counters: tt.initState.counters,
 			}
-			sh := ms.GetAll()
+			sh, err := ms.GetAll(t.Context())
+			require.NoError(t, err)
 
 			assert.EqualValues(t, tt.want.Gauges, sh.Gauges)
 			assert.EqualValues(t, tt.want.Counters, sh.Counters)

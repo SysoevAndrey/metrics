@@ -1,15 +1,13 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
-	"time"
 
 	handlers "github.com/SysoevAndrey/metrics/internal/handler"
 	"github.com/SysoevAndrey/metrics/internal/handler/middleware"
 	"github.com/SysoevAndrey/metrics/internal/logger"
-	repositories "github.com/SysoevAndrey/metrics/internal/repository"
-	services "github.com/SysoevAndrey/metrics/internal/service"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
@@ -29,44 +27,63 @@ func run() error {
 		return err
 	}
 
-	ms := repositories.NewMemStorage()
-	fs, err := repositories.NewFileStorage(config.FileStoragePath)
+	ctx := context.Background()
+
+	store, err := newStore()
+	if err != nil {
+		return err
+	}
+	if store.closer != nil {
+		defer store.closer.Close()
+	}
+
+	hook, err := setupBackup(ctx, store.metrics)
 	if err != nil {
 		return err
 	}
 
-	bc := services.BackupConfig{
-		Restore:       config.Restore,
-		StoreInterval: time.Duration(config.StoreInterval) * time.Second,
-	}
-	b := services.NewBackup(ms, fs, bc)
-	if err := b.SeedRuntimeStorageIfNeeded(); err != nil {
-		logger.Log.Error("failed to seed runtime storage", zap.Error(err))
-	}
-	go b.SetupPersistentStorageUpdateIfNeeded()
-
-	indexHandler, err := handlers.NewIndexHandler(ms)
+	router, err := newRouter(*store, hook)
 	if err != nil {
 		return err
 	}
 
-	valueHandler := handlers.NewValueHandler(ms)
-	updateHandler := handlers.NewUpdateHandler(ms)
+	logger.Log.Info("Server started", zap.String("address", config.Host))
+	return http.ListenAndServe(config.Host, router)
+}
 
+func newRouter(store store, hook func(context.Context) error) (http.Handler, error) {
 	r := chi.NewRouter()
+
+	valueHandler := handlers.NewValueHandler(store.metrics)
+	updateHandler := handlers.NewUpdateHandler(store.metrics)
+	indexHandler, err := handlers.NewIndexHandler(store.metrics)
+	if err != nil {
+		return nil, err
+	}
+
 	r.Use(middleware.WithLogging)
 	r.Use(middleware.WithCompression)
-	r.Get("/", indexHandler.ServeHTTP)
+
+	r.Get("/", indexHandler.GetAll)
+
 	r.Route("/update", func(r chi.Router) {
-		r.Use(middleware.WithPostHook(b.CreateSnapshotIfNeeded))
+		if hook != nil {
+			r.Use(middleware.WithPostHook(hook))
+		}
+
 		r.Post("/{type}/{name}/{value}", updateHandler.ByPath)
 		r.Post("/", updateHandler.ByBody)
 	})
+
 	r.Route("/value", func(r chi.Router) {
 		r.Get("/{type}/{name}", valueHandler.ByPath)
 		r.Post("/", valueHandler.ByBody)
 	})
 
-	logger.Log.Info("Server started", zap.String("address", config.Host))
-	return http.ListenAndServe(config.Host, r)
+	if store.pinger != nil {
+		pingHandler := handlers.NewPingHandler(store.pinger)
+		r.Get("/ping", pingHandler.Ping)
+	}
+
+	return r, nil
 }

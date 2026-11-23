@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -37,25 +38,25 @@ func TestUpdateHandler_update(t *testing.T) {
 	}{
 		{
 			name:    "positive #1",
-			storage: newStorage(),
+			storage: newStorage(nil),
 			metrics: models.Metrics{ID: "PollCount", MType: "counter", Delta: new(int64(42))},
 			wantErr: false,
 		},
 		{
 			name:    "positive #2",
-			storage: newStorage(),
+			storage: newStorage(nil),
 			metrics: models.Metrics{ID: "Alloc", MType: "gauge", Value: new(42.17)},
 			wantErr: false,
 		},
 		{
 			name:    "type mismatch #1",
-			storage: newStorage(),
+			storage: newStorage(nil),
 			metrics: models.Metrics{ID: "Alloc", MType: "counter", Value: new(42.17)},
 			wantErr: true,
 		},
 		{
 			name:    "unknown type",
-			storage: newStorage(),
+			storage: newStorage(nil),
 			metrics: models.Metrics{ID: "Alloc", MType: "string"},
 			wantErr: true,
 		},
@@ -64,7 +65,7 @@ func TestUpdateHandler_update(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := NewUpdateHandler(tt.storage)
-			err := h.update(tt.metrics)
+			err := h.update(t.Context(), tt.metrics)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -115,7 +116,7 @@ func Test_newMetrics(t *testing.T) {
 		{
 			name:   "throws on invalid type",
 			params: params{id: "Valid", mType: "bool", rawValue: "true"},
-			want:   want{err: ErrUnknownType},
+			want:   want{err: models.ErrUnknownType},
 		},
 	}
 	for _, tt := range tests {
@@ -139,6 +140,7 @@ func TestUpdateHandler_ByPath(t *testing.T) {
 		name        string
 		path        string
 		contentType string
+		err         error
 		want        want
 	}{
 		{
@@ -171,6 +173,17 @@ func TestUpdateHandler_ByPath(t *testing.T) {
 				counters: map[string]int64{},
 			},
 		},
+		{
+			name:        "internal error",
+			path:        "/update/counter/Alloc/42",
+			contentType: "text/plain",
+			err:         errors.New("storage error"),
+			want: want{
+				code:     500,
+				gauges:   map[string]float64{},
+				counters: map[string]int64{},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -179,7 +192,7 @@ func TestUpdateHandler_ByPath(t *testing.T) {
 			request.Header.Set("Content-Type", tt.contentType)
 
 			w := httptest.NewRecorder()
-			s := newStorage()
+			s := newStorage(tt.err)
 			h := NewUpdateHandler(s)
 
 			r := chi.NewRouter()
@@ -205,6 +218,7 @@ func TestUpdateHandler_ByBody(t *testing.T) {
 		name        string
 		body        string
 		contentType string
+		err         error
 		want        want
 	}{
 		{
@@ -237,6 +251,17 @@ func TestUpdateHandler_ByBody(t *testing.T) {
 				counters: map[string]int64{},
 			},
 		},
+		{
+			name:        "internal error",
+			body:        `{"id": "Alloc", "type": "counter", "delta": 42}`,
+			contentType: "application/json",
+			err:         errors.New("storage error"),
+			want: want{
+				code:     500,
+				gauges:   map[string]float64{},
+				counters: map[string]int64{},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -246,7 +271,7 @@ func TestUpdateHandler_ByBody(t *testing.T) {
 			request.Header.Set("Content-Type", tt.contentType)
 
 			w := httptest.NewRecorder()
-			s := newStorage()
+			s := newStorage(tt.err)
 			h := NewUpdateHandler(s)
 
 			r := chi.NewRouter()

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -48,8 +49,8 @@ func TestWithPostHook(t *testing.T) {
 	}
 }
 
-func newFn(calls *int) func() error {
-	return func() error {
+func newFn(calls *int) func(context.Context) error {
+	return func(ctx context.Context) error {
 		*calls++
 		return nil
 	}
