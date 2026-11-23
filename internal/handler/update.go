@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -38,9 +40,15 @@ func (h *UpdateHandler) ByPath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.update(*metrics); err != nil {
+	err = h.update(r.Context(), *metrics)
+	if errors.Is(err, ErrMissingValue) {
 		logger.Log.Debug(err.Error(), zap.String("id", metrics.ID))
 		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		logger.Log.Debug(err.Error(), zap.String("id", metrics.ID))
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
@@ -57,32 +65,36 @@ func (h *UpdateHandler) ByBody(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.update(metrics); err != nil {
+	err := h.update(r.Context(), metrics)
+	if errors.Is(err, ErrMissingValue) || errors.Is(err, ErrUnknownType) {
 		logger.Log.Debug(err.Error(), zap.String("id", metrics.ID))
 		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		logger.Log.Debug(err.Error(), zap.String("id", metrics.ID))
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *UpdateHandler) update(metrics models.Metrics) error {
+func (h *UpdateHandler) update(ctx context.Context, metrics models.Metrics) error {
 	switch metrics.MType {
 	case models.Counter:
 		if metrics.Delta == nil {
-			return fmt.Errorf("no counter delta found for: %s", metrics.ID)
+			return fmt.Errorf("%w for counter: %s", ErrMissingValue, metrics.ID)
 		}
-		h.storage.AddCounter(metrics.ID, *metrics.Delta)
+		return h.storage.AddCounter(ctx, metrics.ID, *metrics.Delta)
 	case models.Gauge:
 		if metrics.Value == nil {
-			return fmt.Errorf("no gauge value found for: %s", metrics.ID)
+			return fmt.Errorf("%w for gauge: %s", ErrMissingValue, metrics.ID)
 		}
-		h.storage.SetGauge(metrics.ID, *metrics.Value)
+		return h.storage.SetGauge(ctx, metrics.ID, *metrics.Value)
 	default:
-		return fmt.Errorf("unknown metric type: %q", metrics.MType)
+		return fmt.Errorf("%w: %q", ErrUnknownType, metrics.MType)
 	}
-
-	return nil
 }
 
 func isEmptyParam(p string) bool {

@@ -6,6 +6,9 @@ import (
 	"html/template"
 	"net/http"
 	"sort"
+
+	"github.com/SysoevAndrey/metrics/internal/logger"
+	"go.uber.org/zap"
 )
 
 type IndexHandler struct {
@@ -28,7 +31,12 @@ func NewIndexHandler(storage MetricStorage) (*IndexHandler, error) {
 }
 
 func (h *IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	sh := h.storage.GetAll()
+	sh, err := h.storage.GetAll(r.Context())
+	if err != nil {
+		logger.Log.Error("failed to get all metrics", zap.Error(err))
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 
 	sortedCounters := mapToSortedSlice(sh.Counters)
 	sortedGauges := mapToSortedSlice(sh.Gauges)
@@ -40,7 +48,7 @@ func (h *IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var buf bytes.Buffer
 
-	err := h.tmpl.ExecuteTemplate(&buf, "index.html", d)
+	err = h.tmpl.ExecuteTemplate(&buf, "index.html", d)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return

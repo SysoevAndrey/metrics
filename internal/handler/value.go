@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -29,8 +30,8 @@ func (h *ValueHandler) ByPath(w http.ResponseWriter, r *http.Request) {
 		MType: metricType,
 	}
 
-	metrics, err := h.value(requestMetrics)
-	if errors.Is(err, ErrNotFound) {
+	metrics, err := h.value(r.Context(), requestMetrics)
+	if errors.Is(err, models.ErrNotFound) {
 		logger.Log.Debug(err.Error(), zap.String("id", requestMetrics.ID))
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -38,6 +39,11 @@ func (h *ValueHandler) ByPath(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, ErrUnknownType) {
 		logger.Log.Debug(err.Error(), zap.String("id", requestMetrics.ID))
 		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		logger.Log.Debug(err.Error(), zap.String("id", requestMetrics.ID))
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
@@ -61,8 +67,8 @@ func (h *ValueHandler) ByBody(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metrics, err := h.value(requestMetrics)
-	if errors.Is(err, ErrNotFound) {
+	metrics, err := h.value(r.Context(), requestMetrics)
+	if errors.Is(err, models.ErrNotFound) {
 		logger.Log.Debug(err.Error(), zap.String("id", requestMetrics.ID))
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -70,6 +76,11 @@ func (h *ValueHandler) ByBody(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, ErrUnknownType) {
 		logger.Log.Debug(err.Error(), zap.String("id", requestMetrics.ID))
 		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		logger.Log.Debug(err.Error(), zap.String("id", requestMetrics.ID))
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
@@ -84,12 +95,12 @@ func (h *ValueHandler) ByBody(w http.ResponseWriter, r *http.Request) {
 	logger.Log.Debug("sending HTTP 200 response")
 }
 
-func (h *ValueHandler) value(requestMetrics models.Metrics) (*models.Metrics, error) {
+func (h *ValueHandler) value(ctx context.Context, requestMetrics models.Metrics) (*models.Metrics, error) {
 	switch requestMetrics.MType {
 	case models.Counter:
-		value, exists := h.storage.GetCounter(requestMetrics.ID)
-		if !exists {
-			return nil, ErrNotFound
+		value, err := h.storage.GetCounter(ctx, requestMetrics.ID)
+		if err != nil {
+			return nil, err
 		}
 		metrics := models.Metrics{
 			ID:    requestMetrics.ID,
@@ -98,9 +109,9 @@ func (h *ValueHandler) value(requestMetrics models.Metrics) (*models.Metrics, er
 		}
 		return &metrics, nil
 	case models.Gauge:
-		value, exists := h.storage.GetGauge(requestMetrics.ID)
-		if !exists {
-			return nil, ErrNotFound
+		value, err := h.storage.GetGauge(ctx, requestMetrics.ID)
+		if err != nil {
+			return nil, err
 		}
 		metrics := models.Metrics{
 			ID:    requestMetrics.ID,

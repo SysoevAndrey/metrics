@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"net/http"
@@ -31,6 +32,8 @@ func run() error {
 		return err
 	}
 
+	ctx := context.Background()
+
 	db, err := sql.Open("pgx", config.DatabaseDSN)
 	if err != nil {
 		return err
@@ -48,10 +51,10 @@ func run() error {
 		StoreInterval: time.Duration(config.StoreInterval) * time.Second,
 	}
 	b := services.NewBackup(ms, fs, bc)
-	if err := b.SeedRuntimeStorageIfNeeded(); err != nil {
+	if err := b.SeedRuntimeStorageIfNeeded(ctx); err != nil {
 		logger.Log.Error("failed to seed runtime storage", zap.Error(err))
 	}
-	go b.SetupPersistentStorageUpdateIfNeeded()
+	go b.SetupPersistentStorageUpdateIfNeeded(ctx)
 
 	indexHandler, err := handlers.NewIndexHandler(ms)
 	if err != nil {

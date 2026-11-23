@@ -64,7 +64,7 @@ func TestUpdateHandler_update(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := NewUpdateHandler(tt.storage)
-			err := h.update(tt.metrics)
+			err := h.update(t.Context(), tt.metrics)
 
 			if tt.wantErr {
 				assert.Error(t, err)

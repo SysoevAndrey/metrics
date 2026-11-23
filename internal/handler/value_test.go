@@ -41,13 +41,13 @@ func TestValueHandler_value(t *testing.T) {
 			name:    "not found #1",
 			storage: &storage{gauges: map[string]float64{}, counters: map[string]int64{}},
 			data:    models.Metrics{MType: "counter", ID: "PollCount"},
-			want:    want{err: ErrNotFound},
+			want:    want{err: models.ErrNotFound},
 		},
 		{
 			name:    "not found #2",
 			storage: &storage{gauges: map[string]float64{}, counters: map[string]int64{}},
 			data:    models.Metrics{MType: "gauge", ID: "Alloc"},
-			want:    want{err: ErrNotFound},
+			want:    want{err: models.ErrNotFound},
 		},
 		{
 			name:    "invalid type",
@@ -59,7 +59,7 @@ func TestValueHandler_value(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := NewValueHandler(tt.storage)
-			metrics, err := h.value(tt.data)
+			metrics, err := h.value(t.Context(), tt.data)
 
 			assert.ErrorIs(t, err, tt.want.err)
 			assert.EqualValues(t, tt.want.metrics, metrics)
