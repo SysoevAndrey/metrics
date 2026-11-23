@@ -53,7 +53,7 @@ func TestValueHandler_value(t *testing.T) {
 			name:    "invalid type",
 			storage: &storage{gauges: map[string]float64{}, counters: map[string]int64{}},
 			data:    models.Metrics{MType: "bool", ID: "Valid"},
-			want:    want{err: ErrUnknownType},
+			want:    want{err: models.ErrUnknownType},
 		},
 	}
 	for _, tt := range tests {

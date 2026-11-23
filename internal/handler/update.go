@@ -41,7 +41,7 @@ func (h *UpdateHandler) ByPath(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err = h.update(r.Context(), *metrics)
-	if errors.Is(err, ErrMissingValue) {
+	if errors.Is(err, models.ErrMissingValue) {
 		logger.Log.Debug(err.Error(), zap.String("id", metrics.ID))
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -66,7 +66,7 @@ func (h *UpdateHandler) ByBody(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err := h.update(r.Context(), metrics)
-	if errors.Is(err, ErrMissingValue) || errors.Is(err, ErrUnknownType) {
+	if errors.Is(err, models.ErrMissingValue) || errors.Is(err, models.ErrUnknownType) {
 		logger.Log.Debug(err.Error(), zap.String("id", metrics.ID))
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -84,16 +84,16 @@ func (h *UpdateHandler) update(ctx context.Context, metrics models.Metrics) erro
 	switch metrics.MType {
 	case models.Counter:
 		if metrics.Delta == nil {
-			return fmt.Errorf("%w for counter: %s", ErrMissingValue, metrics.ID)
+			return fmt.Errorf("%w for counter: %s", models.ErrMissingValue, metrics.ID)
 		}
 		return h.storage.AddCounter(ctx, metrics.ID, *metrics.Delta)
 	case models.Gauge:
 		if metrics.Value == nil {
-			return fmt.Errorf("%w for gauge: %s", ErrMissingValue, metrics.ID)
+			return fmt.Errorf("%w for gauge: %s", models.ErrMissingValue, metrics.ID)
 		}
 		return h.storage.SetGauge(ctx, metrics.ID, *metrics.Value)
 	default:
-		return fmt.Errorf("%w: %q", ErrUnknownType, metrics.MType)
+		return fmt.Errorf("%w: %q", models.ErrUnknownType, metrics.MType)
 	}
 }
 
@@ -121,7 +121,7 @@ func newMetrics(id, mType, rawValue string) (*models.Metrics, error) {
 		}
 		m.Value = &value
 	default:
-		return nil, ErrUnknownType
+		return nil, models.ErrUnknownType
 	}
 
 	return &m, nil

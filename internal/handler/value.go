@@ -36,7 +36,7 @@ func (h *ValueHandler) ByPath(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	if errors.Is(err, ErrUnknownType) {
+	if errors.Is(err, models.ErrUnknownType) {
 		logger.Log.Debug(err.Error(), zap.String("id", requestMetrics.ID))
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -73,7 +73,7 @@ func (h *ValueHandler) ByBody(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	if errors.Is(err, ErrUnknownType) {
+	if errors.Is(err, models.ErrUnknownType) {
 		logger.Log.Debug(err.Error(), zap.String("id", requestMetrics.ID))
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -120,6 +120,6 @@ func (h *ValueHandler) value(ctx context.Context, requestMetrics models.Metrics)
 		}
 		return &metrics, nil
 	default:
-		return nil, ErrUnknownType
+		return nil, models.ErrUnknownType
 	}
 }

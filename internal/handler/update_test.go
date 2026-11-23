@@ -115,7 +115,7 @@ func Test_newMetrics(t *testing.T) {
 		{
 			name:   "throws on invalid type",
 			params: params{id: "Valid", mType: "bool", rawValue: "true"},
-			want:   want{err: ErrUnknownType},
+			want:   want{err: models.ErrUnknownType},
 		},
 	}
 	for _, tt := range tests {
