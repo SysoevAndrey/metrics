@@ -19,7 +19,7 @@ func parseFlags() error {
 	flag.StringVar(&config.Host, "a", "localhost:8080", "host to run server")
 	flag.StringVar(&config.LogLevel, "l", "info", "log level")
 	flag.IntVar(&config.StoreInterval, "i", 300, "save to store interval")
-	flag.StringVar(&config.FileStoragePath, "f", "./metrics_snapshot.json", "path to metrics storage file")
+	flag.StringVar(&config.FileStoragePath, "f", "", "path to metrics storage file")
 	flag.BoolVar(&config.Restore, "r", false, "restore data on startup")
 	flag.StringVar(&config.DatabaseDSN, "d", "", "database data source name")
 	flag.Parse()
