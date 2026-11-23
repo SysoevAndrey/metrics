@@ -64,7 +64,7 @@ func newRouter(store store, hook func(context.Context) error) (http.Handler, err
 	r.Use(middleware.WithLogging)
 	r.Use(middleware.WithCompression)
 
-	r.Get("/", indexHandler.ServeHTTP)
+	r.Get("/", indexHandler.GetAll)
 
 	r.Route("/update", func(r chi.Router) {
 		if hook != nil {

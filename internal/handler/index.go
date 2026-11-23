@@ -30,7 +30,7 @@ func NewIndexHandler(storage MetricStorage) (*IndexHandler, error) {
 	return &h, nil
 }
 
-func (h *IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *IndexHandler) GetAll(w http.ResponseWriter, r *http.Request) {
 	sh, err := h.storage.GetAll(r.Context())
 	if err != nil {
 		logger.Log.Error("failed to get all metrics", zap.Error(err))

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -51,6 +52,12 @@ func TestValueHandler_value(t *testing.T) {
 		},
 		{
 			name:    "invalid type",
+			storage: &storage{gauges: map[string]float64{}, counters: map[string]int64{}},
+			data:    models.Metrics{MType: "bool", ID: "Valid"},
+			want:    want{err: models.ErrUnknownType},
+		},
+		{
+			name:    "internal error",
 			storage: &storage{gauges: map[string]float64{}, counters: map[string]int64{}},
 			data:    models.Metrics{MType: "bool", ID: "Valid"},
 			want:    want{err: models.ErrUnknownType},
@@ -107,6 +114,12 @@ func TestValueHandler_ByPath(t *testing.T) {
 			initState: &storage{gauges: map[string]float64{}, counters: map[string]int64{"PollCount": 42}},
 			path:      "/value/gauge/PollCount",
 			code:      404,
+		},
+		{
+			name:      "internal error",
+			initState: &storage{gauges: map[string]float64{}, counters: map[string]int64{"PollCount": 42}, err: errors.New("storage error")},
+			path:      "/value/counter/PollCount",
+			code:      500,
 		},
 	}
 
@@ -175,6 +188,12 @@ func TestValueHandler_ByBody(t *testing.T) {
 			initState: &storage{gauges: map[string]float64{}, counters: map[string]int64{"PollCount": 42}},
 			body:      `{"id": "PollCount", "type": "gauge"}`,
 			code:      404,
+		},
+		{
+			name:      "internal error",
+			initState: &storage{gauges: map[string]float64{}, counters: map[string]int64{"PollCount": 42}, err: errors.New("storage error")},
+			body:      `{"id": "PollCount", "type": "counter"}`,
+			code:      500,
 		},
 	}
 
