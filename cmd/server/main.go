@@ -75,6 +75,14 @@ func newRouter(store store, hook func(context.Context) error) (http.Handler, err
 		r.Post("/", updateHandler.ByBody)
 	})
 
+	r.Route("/updates", func(r chi.Router) {
+		if hook != nil {
+			r.Use(middleware.WithPostHook(hook))
+		}
+
+		r.Post("/", updateHandler.Batch)
+	})
+
 	r.Route("/value", func(r chi.Router) {
 		r.Get("/{type}/{name}", valueHandler.ByPath)
 		r.Post("/", valueHandler.ByBody)

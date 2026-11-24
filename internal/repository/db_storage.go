@@ -8,6 +8,21 @@ import (
 	models "github.com/SysoevAndrey/metrics/internal/model"
 )
 
+const (
+	setGaugeUpsert = `
+		INSERT INTO metrics (id, mtype, value)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (id, mtype) DO UPDATE
+		SET value = $3
+	`
+	addCounterUpsert = `
+		INSERT INTO metrics (id, mtype, delta)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (id, mtype) DO UPDATE
+		SET delta = metrics.delta + EXCLUDED.delta
+	`
+)
+
 type DBStorage struct {
 	db *sql.DB
 }
@@ -19,12 +34,7 @@ func NewDBStorage(db *sql.DB) *DBStorage {
 func (s *DBStorage) SetGauge(ctx context.Context, name string, value float64) error {
 	_, err := s.db.ExecContext(
 		ctx,
-		`
-		INSERT INTO metrics (id, mtype, value)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (id, mtype) DO UPDATE
-		SET value = $3
-		`,
+		setGaugeUpsert,
 		name, models.Gauge, value,
 	)
 
@@ -34,16 +44,54 @@ func (s *DBStorage) SetGauge(ctx context.Context, name string, value float64) er
 func (s *DBStorage) AddCounter(ctx context.Context, name string, value int64) error {
 	_, err := s.db.ExecContext(
 		ctx,
-		`
-		INSERT INTO metrics (id, mtype, delta)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (id, mtype) DO UPDATE
-		SET delta = metrics.delta + EXCLUDED.delta
-		`,
+		addCounterUpsert,
 		name, models.Counter, value,
 	)
 
 	return err
+}
+
+func (s *DBStorage) ApplyBatch(ctx context.Context, metrics []models.Metrics) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	setGaugeStmt, err := tx.PrepareContext(ctx, setGaugeUpsert)
+	if err != nil {
+		return err
+	}
+	defer setGaugeStmt.Close()
+
+	addCounterStmt, err := tx.PrepareContext(ctx, addCounterUpsert)
+	if err != nil {
+		return err
+	}
+	defer addCounterStmt.Close()
+
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value == nil {
+				return models.ErrMissingValue
+			}
+			if _, err := setGaugeStmt.ExecContext(ctx, metric.ID, models.Gauge, *metric.Value); err != nil {
+				return err
+			}
+		case models.Counter:
+			if metric.Delta == nil {
+				return models.ErrMissingValue
+			}
+			if _, err := addCounterStmt.ExecContext(ctx, metric.ID, models.Counter, *metric.Delta); err != nil {
+				return err
+			}
+		default:
+			return models.ErrUnknownType
+		}
+	}
+
+	return tx.Commit()
 }
 
 func (s *DBStorage) GetGauge(ctx context.Context, name string) (float64, error) {
