@@ -83,6 +83,67 @@ func TestMemStorage_AddCounter(t *testing.T) {
 	}
 }
 
+func TestMemStorage_ApplyBatch(t *testing.T) {
+	initState := state{gauges: map[string]float64{"Alloc": 17.03}, counters: map[string]int64{"PollCount": 17}}
+
+	tests := []struct {
+		name      string
+		initState state
+		metrics   []models.Metrics
+		wantState state
+		wantErr   bool
+	}{
+		{
+			name:      "applies batch",
+			initState: initState,
+			metrics: []models.Metrics{
+				{ID: "Alloc", MType: models.Gauge, Value: new(20.05)},
+				{ID: "PollCount", MType: models.Counter, Delta: new(int64(3))},
+			},
+			wantState: state{gauges: map[string]float64{"Alloc": 20.05}, counters: map[string]int64{"PollCount": 20}},
+			wantErr:   false,
+		},
+		{
+			name:      "throws error on missing value #1",
+			initState: initState,
+			metrics:   []models.Metrics{{ID: "Alloc", MType: models.Gauge}},
+			wantState: initState,
+			wantErr:   true,
+		},
+		{
+			name:      "throws error on missing value #2",
+			initState: initState,
+			metrics:   []models.Metrics{{ID: "PollCount", MType: models.Counter}},
+			wantState: initState,
+			wantErr:   true,
+		},
+		{
+			name:      "throws error on unknown type",
+			initState: initState,
+			metrics:   []models.Metrics{{ID: "IsValid", MType: "bool"}},
+			wantState: initState,
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ms := MemStorage{
+				gauges:   tt.initState.gauges,
+				counters: tt.initState.counters,
+			}
+			err := ms.ApplyBatch(t.Context(), tt.metrics)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.EqualValues(t, tt.wantState.counters, ms.counters)
+			assert.EqualValues(t, tt.wantState.gauges, ms.gauges)
+		})
+	}
+}
+
 func TestMemStorage_GetAll(t *testing.T) {
 	tests := []struct {
 		name      string
