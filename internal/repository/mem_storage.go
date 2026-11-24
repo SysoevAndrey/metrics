@@ -43,21 +43,21 @@ func (ms *MemStorage) AddCounter(ctx context.Context, name string, value int64) 
 	return nil
 }
 
-func (s *MemStorage) ApplyBatch(ctx context.Context, metrics []models.Metrics) error {
+func (ms *MemStorage) ApplyBatch(ctx context.Context, metrics []models.Metrics) error {
 	for _, metric := range metrics {
 		switch metric.MType {
 		case models.Counter:
 			if metric.Delta == nil {
 				return models.ErrMissingValue
 			}
-			if err := s.AddCounter(ctx, metric.ID, *metric.Delta); err != nil {
+			if err := ms.AddCounter(ctx, metric.ID, *metric.Delta); err != nil {
 				return err
 			}
 		case models.Gauge:
 			if metric.Value == nil {
 				return models.ErrMissingValue
 			}
-			if err := s.SetGauge(ctx, metric.ID, *metric.Value); err != nil {
+			if err := ms.SetGauge(ctx, metric.ID, *metric.Value); err != nil {
 				return err
 			}
 		default:
