@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -22,19 +23,21 @@ func newRuntimeStorageMock() *runtimeStorageMock {
 	}
 }
 
-func (s *runtimeStorageMock) SetGauge(name string, value float64) {
+func (s *runtimeStorageMock) SetGauge(ctx context.Context, name string, value float64) error {
 	s.gauges[name] = value
+	return nil
 }
 
-func (s *runtimeStorageMock) AddCounter(name string, value int64) {
+func (s *runtimeStorageMock) AddCounter(ctx context.Context, name string, value int64) error {
 	s.counters[name] += value
+	return nil
 }
 
-func (s *runtimeStorageMock) GetAll() models.Snapshot {
+func (s *runtimeStorageMock) GetAll(ctx context.Context) (models.Snapshot, error) {
 	return models.Snapshot{
 		Gauges:   s.gauges,
 		Counters: s.counters,
-	}
+	}, nil
 }
 
 type persistentStorageMock struct {
@@ -71,11 +74,14 @@ func TestBackup_SeedRuntimeStorageIfNeeded(t *testing.T) {
 		})
 
 		b := NewBackup(rs, ps, cfg)
-		err := b.SeedRuntimeStorageIfNeeded()
+		err := b.SeedRuntimeStorageIfNeeded(t.Context())
 		require.NoError(t, err)
 
-		assert.Empty(t, b.rs.GetAll().Counters)
-		assert.Empty(t, b.rs.GetAll().Gauges)
+		metrics, err := b.rs.GetAll(t.Context())
+		require.NoError(t, err)
+
+		assert.Empty(t, metrics.Counters)
+		assert.Empty(t, metrics.Gauges)
 	})
 
 	t.Run("seeds if Restore is true", func(t *testing.T) {
@@ -89,10 +95,13 @@ func TestBackup_SeedRuntimeStorageIfNeeded(t *testing.T) {
 		require.NoError(t, err)
 
 		b := NewBackup(rs, ps, cfg)
-		err = b.SeedRuntimeStorageIfNeeded()
+		err = b.SeedRuntimeStorageIfNeeded(t.Context())
 		require.NoError(t, err)
 
-		pollCount, found := b.rs.GetAll().Counters["PollCount"]
+		metrics, err := b.rs.GetAll(t.Context())
+		require.NoError(t, err)
+
+		pollCount, found := metrics.Counters["PollCount"]
 		assert.True(t, found)
 		assert.Equal(t, int64(42), pollCount)
 	})
@@ -121,7 +130,7 @@ func TestBackup_SeedRuntimeStorageIfNeeded(t *testing.T) {
 			require.NoError(t, err)
 
 			b := NewBackup(rs, ps, cfg)
-			err = b.SeedRuntimeStorageIfNeeded()
+			err = b.SeedRuntimeStorageIfNeeded(t.Context())
 			assert.Error(t, err)
 		})
 	}
@@ -133,11 +142,11 @@ func TestBackup_createSnapshot(t *testing.T) {
 		ps := newPersistentStorageMock()
 		cfg := BackupConfig{Restore: true}
 
-		rs.AddCounter("PollCount", int64(42))
-		rs.SetGauge("Alloc", 17.03)
+		rs.AddCounter(t.Context(), "PollCount", int64(42))
+		rs.SetGauge(t.Context(), "Alloc", 17.03)
 
 		b := NewBackup(rs, ps, cfg)
-		err := b.createSnapshot()
+		err := b.createSnapshot(t.Context())
 		require.NoError(t, err)
 
 		result, err := b.ps.ReadMetrics()

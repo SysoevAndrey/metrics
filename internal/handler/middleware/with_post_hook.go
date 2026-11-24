@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/SysoevAndrey/metrics/internal/logger"
@@ -17,7 +18,7 @@ func (w *postHookResponseWriter) WriteHeader(statusCode int) {
 	w.statusCode = statusCode
 }
 
-func WithPostHook(fn func() error) func(http.Handler) http.Handler {
+func WithPostHook(fn func(ctx context.Context) error) func(http.Handler) http.Handler {
 	return func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			writer := postHookResponseWriter{ResponseWriter: w}
@@ -25,7 +26,7 @@ func WithPostHook(fn func() error) func(http.Handler) http.Handler {
 			h.ServeHTTP(&writer, r)
 
 			if writer.statusCode < 300 {
-				if err := fn(); err != nil {
+				if err := fn(r.Context()); err != nil {
 					logger.Log.Error("failed to execute post hook", zap.Error(err))
 				}
 			}

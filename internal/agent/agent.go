@@ -14,6 +14,13 @@ import (
 	"github.com/go-resty/resty/v2"
 )
 
+type requestMode int
+
+const (
+	batch requestMode = iota
+	sequential
+)
+
 type Agent struct {
 	pollInterval   time.Duration
 	reportInterval time.Duration
@@ -58,7 +65,7 @@ func (a *Agent) Run() error {
 	wg.Go(func() {
 		for {
 			counters, gauges := collector.GetSnapshot()
-			a.sendMetrics(counters, gauges)
+			a.sendMetrics(counters, gauges, batch)
 			time.Sleep(a.reportInterval)
 		}
 	})
@@ -80,7 +87,7 @@ func (a *Agent) setupClient(config clientConfig) {
 		})
 }
 
-func (a *Agent) sendMetrics(counters map[string]int64, gauges map[string]float64) {
+func (a *Agent) sendMetrics(counters map[string]int64, gauges map[string]float64, mode requestMode) {
 	metrics := make([]models.Metrics, 0, len(counters)+len(gauges))
 
 	for name, value := range counters {
@@ -91,40 +98,74 @@ func (a *Agent) sendMetrics(counters map[string]int64, gauges map[string]float64
 		metrics = append(metrics, models.Metrics{ID: name, MType: models.Gauge, Value: &value})
 	}
 
-	for _, m := range metrics {
-		err := a.sendMetric(m)
+	switch mode {
+	case batch:
+		a.sendMetricsBatch(metrics)
+	case sequential:
+		a.sendMetricsSequential(metrics)
+	default:
+		log.Printf("unknown mode: %d", mode)
+	}
+}
+
+func (a *Agent) sendMetricsBatch(metrics []models.Metrics) {
+	if len(metrics) == 0 {
+		log.Println("skipping request: metrics empty")
+		return
+	}
+
+	body, err := compressBody(metrics)
+	if err != nil {
+		log.Printf("failed to compress metrics: %v", err)
+		return
+	}
+	if err = a.sendRequest("/updates", body); err != nil {
+		log.Println(err)
+	}
+}
+
+func (a *Agent) sendMetricsSequential(metrics []models.Metrics) {
+	for _, metric := range metrics {
+		body, err := compressBody(metric)
 		if err != nil {
-			log.Print(err)
+			log.Printf("failed to compress metrics: %v", err)
+		}
+		if err = a.sendRequest("/update", body); err != nil {
+			log.Println(err)
 		}
 	}
 }
 
-func (a *Agent) sendMetric(m models.Metrics) error {
-	bodyRaw, err := json.Marshal(m)
+func (a *Agent) sendRequest(path string, body []byte) error {
+	resp, err := a.client.R().
+		SetHeader("Content-Type", "application/json").
+		SetHeader("Content-Encoding", "gzip").
+		SetBody(body).
+		Post(path)
+
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	if resp.IsError() {
+		return fmt.Errorf("request error: %v", resp.Status())
+	}
+	return nil
+}
+
+func compressBody(body any) ([]byte, error) {
+	bodyRaw, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
 	}
 
 	buf := bytes.NewBuffer(nil)
 	zw := gzip.NewWriter(buf)
 	if _, err = zw.Write(bodyRaw); err != nil {
-		return err
+		return nil, err
 	}
 	if err = zw.Close(); err != nil {
-		return err
+		return nil, err
 	}
 
-	resp, err := a.client.R().
-		SetHeader("Content-Type", "application/json").
-		SetHeader("Content-Encoding", "gzip").
-		SetBody(buf.Bytes()).
-		Post("/update")
-
-	if err != nil {
-		return fmt.Errorf("failed to send %s: %v", m.ID, err)
-	}
-	if resp.IsError() {
-		return fmt.Errorf("failed to send %s: %v", m.ID, resp.Status())
-	}
-	return nil
+	return buf.Bytes(), nil
 }

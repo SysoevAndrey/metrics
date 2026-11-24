@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -11,10 +12,10 @@ import (
 )
 
 type RuntimeStorage interface {
-	SetGauge(name string, value float64)
-	AddCounter(name string, value int64)
+	SetGauge(ctx context.Context, name string, value float64) error
+	AddCounter(ctx context.Context, name string, value int64) error
 
-	GetAll() models.Snapshot
+	GetAll(ctx context.Context) (models.Snapshot, error)
 }
 
 type PersistentStorage interface {
@@ -43,7 +44,7 @@ func NewBackup(rs RuntimeStorage, ps PersistentStorage, cfg BackupConfig) *Backu
 	}
 }
 
-func (b *Backup) SeedRuntimeStorageIfNeeded() error {
+func (b *Backup) SeedRuntimeStorageIfNeeded(ctx context.Context) error {
 	if !b.cfg.Restore {
 		return nil
 	}
@@ -59,12 +60,16 @@ func (b *Backup) SeedRuntimeStorageIfNeeded() error {
 			if m.Delta == nil {
 				return fmt.Errorf("counter metric %s has no delta", m.ID)
 			}
-			b.rs.AddCounter(m.ID, *m.Delta)
+			if err = b.rs.AddCounter(ctx, m.ID, *m.Delta); err != nil {
+				return err
+			}
 		case models.Gauge:
 			if m.Value == nil {
 				return fmt.Errorf("gauge metric %s has no value", m.ID)
 			}
-			b.rs.SetGauge(m.ID, *m.Value)
+			if err = b.rs.SetGauge(ctx, m.ID, *m.Value); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("unknown metric type: %s", m.MType)
 		}
@@ -74,31 +79,34 @@ func (b *Backup) SeedRuntimeStorageIfNeeded() error {
 	return nil
 }
 
-func (b *Backup) SetupPersistentStorageUpdateIfNeeded() {
+func (b *Backup) SetupPersistentStorageUpdateIfNeeded(ctx context.Context) {
 	if b.cfg.StoreInterval <= 0 {
 		return
 	}
 
 	for {
 		time.Sleep(b.cfg.StoreInterval)
-		if err := b.createSnapshot(); err != nil {
+		if err := b.createSnapshot(ctx); err != nil {
 			logger.Log.Error("failed to write metrics", zap.Error(err))
 		}
 	}
 }
 
-func (b *Backup) CreateSnapshotIfNeeded() error {
+func (b *Backup) CreateSnapshotIfNeeded(ctx context.Context) error {
 	if b.cfg.StoreInterval != 0 {
 		return nil
 	}
-	return b.createSnapshot()
+	return b.createSnapshot(ctx)
 }
 
-func (b *Backup) createSnapshot() error {
+func (b *Backup) createSnapshot(ctx context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	sh := b.rs.GetAll()
+	sh, err := b.rs.GetAll(ctx)
+	if err != nil {
+		return err
+	}
 
 	metrics := []models.Metrics{}
 	for name, value := range sh.Gauges {

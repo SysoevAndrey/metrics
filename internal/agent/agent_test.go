@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	models "github.com/SysoevAndrey/metrics/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,18 +23,28 @@ func TestAgent_sendMetrics(t *testing.T) {
 		name        string
 		gauges      map[string]float64
 		counters    map[string]int64
+		mode        requestMode
 		pathToThrow string
 	}{
 		{
-			name:     "sends all metrics",
+			name:     "sends all metrics sequentially",
 			gauges:   map[string]float64{"Alloc": 17.03},
 			counters: map[string]int64{"PollCount": 42},
+			mode:     sequential,
 		},
 		{
-			name:        "error doesn't block sending",
+			name:        "error doesn't block sending sequentially",
 			gauges:      map[string]float64{"Alloc": 17.03},
 			counters:    map[string]int64{"PollCount": 42},
 			pathToThrow: "/update/counter/PollCount/42",
+			mode:        sequential,
+		},
+		{
+			name:        "sends all metrics using batch",
+			gauges:      map[string]float64{"Alloc": 17.03},
+			counters:    map[string]int64{"PollCount": 42},
+			pathToThrow: "/update/counter/PollCount/42",
+			mode:        batch,
 		},
 	}
 
@@ -59,13 +68,21 @@ func TestAgent_sendMetrics(t *testing.T) {
 			agent := NewAgent(0, 0, host)
 			agent.setupClient(testClientConfig)
 
-			agent.sendMetrics(tt.counters, tt.gauges)
-			assert.Equal(t, len(tt.counters)+len(tt.gauges), calls)
+			agent.sendMetrics(tt.counters, tt.gauges, tt.mode)
+
+			switch tt.mode {
+			case sequential:
+				assert.Equal(t, len(tt.counters)+len(tt.gauges), calls)
+			case batch:
+				assert.Equal(t, 1, calls)
+			default:
+				t.Error("unknown mode")
+			}
 		})
 	}
 }
 
-func TestAgent_sendMetric(t *testing.T) {
+func TestAgent_sendRequest(t *testing.T) {
 	tests := []struct {
 		name       string
 		failCount  int
@@ -98,7 +115,7 @@ func TestAgent_sendMetric(t *testing.T) {
 
 			agent := NewAgent(0, 0, host)
 			agent.setupClient(testClientConfig)
-			err := agent.sendMetric(models.Metrics{ID: "PollCount", MType: models.Counter, Delta: new(int64(42))})
+			err := agent.sendRequest("/", []byte{})
 
 			assert.Equal(t, tt.wantCalls, calls)
 

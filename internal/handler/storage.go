@@ -1,13 +1,19 @@
 package handlers
 
-import models "github.com/SysoevAndrey/metrics/internal/model"
+import (
+	"context"
+
+	models "github.com/SysoevAndrey/metrics/internal/model"
+)
 
 type MetricStorage interface {
-	SetGauge(name string, value float64)
-	AddCounter(name string, value int64)
+	SetGauge(ctx context.Context, name string, value float64) error
+	AddCounter(ctx context.Context, name string, value int64) error
 
-	GetGauge(name string) (float64, bool)
-	GetCounter(name string) (int64, bool)
+	ApplyBatch(ctx context.Context, metrics []models.Metrics) error
 
-	GetAll() models.Snapshot
+	GetGauge(ctx context.Context, name string) (float64, error)
+	GetCounter(ctx context.Context, name string) (int64, error)
+
+	GetAll(ctx context.Context) (models.Snapshot, error)
 }

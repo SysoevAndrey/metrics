@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIndexHandler_ServeHTTP(t *testing.T) {
+func TestIndexHandler_GetAll(t *testing.T) {
 	type want struct {
 		contentType string
 		code        int
@@ -36,11 +37,19 @@ func TestIndexHandler_ServeHTTP(t *testing.T) {
 		},
 		{
 			name:      "no metrics",
-			initState: newStorage(),
+			initState: newStorage(nil),
 			want: want{
 				contentType: "text/html",
 				code:        200,
 				contains:    []string{"No metrics"},
+				notContains: []string{"Alloc", "17.3", "PollCount", "42"},
+			},
+		},
+		{
+			name:      "internal error",
+			initState: newStorage(errors.New("storage error")),
+			want: want{
+				code:        500,
 				notContains: []string{"Alloc", "17.3", "PollCount", "42"},
 			},
 		},
@@ -54,7 +63,7 @@ func TestIndexHandler_ServeHTTP(t *testing.T) {
 			require.NoError(t, err)
 
 			r := chi.NewRouter()
-			r.Get("/", h.ServeHTTP)
+			r.Get("/", h.GetAll)
 			r.ServeHTTP(w, request)
 
 			result := w.Result()

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -28,6 +29,46 @@ func TestIsEmptyParam(t *testing.T) {
 	}
 }
 
+func TestUpdateHandler_validateMetric(t *testing.T) {
+	tests := []struct {
+		name   string
+		metric models.Metrics
+		err    error
+	}{
+		{
+			name:   "validates counter",
+			metric: models.Metrics{ID: "PollCount", MType: models.Counter, Delta: new(int64(42))},
+		},
+		{
+
+			name:   "validates gauge",
+			metric: models.Metrics{ID: "Alloc", MType: models.Gauge, Value: new(17.03)},
+		},
+		{
+			name:   "throws error on missing type #1",
+			metric: models.Metrics{ID: "PollCount", MType: models.Counter},
+			err:    models.ErrMissingValue,
+		},
+		{
+			name:   "throws error on missing type #2",
+			metric: models.Metrics{ID: "Alloc", MType: models.Gauge},
+			err:    models.ErrMissingValue,
+		},
+		{
+			name:   "throws error on unknown type",
+			metric: models.Metrics{ID: "IsValid", MType: "bool"},
+			err:    models.ErrUnknownType,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateMetric(tt.metric)
+			assert.ErrorIs(t, err, tt.err)
+		})
+	}
+}
+
 func TestUpdateHandler_update(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -37,25 +78,25 @@ func TestUpdateHandler_update(t *testing.T) {
 	}{
 		{
 			name:    "positive #1",
-			storage: newStorage(),
+			storage: newStorage(nil),
 			metrics: models.Metrics{ID: "PollCount", MType: "counter", Delta: new(int64(42))},
 			wantErr: false,
 		},
 		{
 			name:    "positive #2",
-			storage: newStorage(),
+			storage: newStorage(nil),
 			metrics: models.Metrics{ID: "Alloc", MType: "gauge", Value: new(42.17)},
 			wantErr: false,
 		},
 		{
 			name:    "type mismatch #1",
-			storage: newStorage(),
+			storage: newStorage(nil),
 			metrics: models.Metrics{ID: "Alloc", MType: "counter", Value: new(42.17)},
 			wantErr: true,
 		},
 		{
 			name:    "unknown type",
-			storage: newStorage(),
+			storage: newStorage(nil),
 			metrics: models.Metrics{ID: "Alloc", MType: "string"},
 			wantErr: true,
 		},
@@ -64,7 +105,7 @@ func TestUpdateHandler_update(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := NewUpdateHandler(tt.storage)
-			err := h.update(tt.metrics)
+			err := h.update(t.Context(), tt.metrics)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -115,7 +156,7 @@ func Test_newMetrics(t *testing.T) {
 		{
 			name:   "throws on invalid type",
 			params: params{id: "Valid", mType: "bool", rawValue: "true"},
-			want:   want{err: ErrUnknownType},
+			want:   want{err: models.ErrUnknownType},
 		},
 	}
 	for _, tt := range tests {
@@ -139,6 +180,7 @@ func TestUpdateHandler_ByPath(t *testing.T) {
 		name        string
 		path        string
 		contentType string
+		err         error
 		want        want
 	}{
 		{
@@ -171,6 +213,17 @@ func TestUpdateHandler_ByPath(t *testing.T) {
 				counters: map[string]int64{},
 			},
 		},
+		{
+			name:        "internal error",
+			path:        "/update/counter/Alloc/42",
+			contentType: "text/plain",
+			err:         errors.New("storage error"),
+			want: want{
+				code:     500,
+				gauges:   map[string]float64{},
+				counters: map[string]int64{},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -179,7 +232,7 @@ func TestUpdateHandler_ByPath(t *testing.T) {
 			request.Header.Set("Content-Type", tt.contentType)
 
 			w := httptest.NewRecorder()
-			s := newStorage()
+			s := newStorage(tt.err)
 			h := NewUpdateHandler(s)
 
 			r := chi.NewRouter()
@@ -205,6 +258,7 @@ func TestUpdateHandler_ByBody(t *testing.T) {
 		name        string
 		body        string
 		contentType string
+		err         error
 		want        want
 	}{
 		{
@@ -237,6 +291,17 @@ func TestUpdateHandler_ByBody(t *testing.T) {
 				counters: map[string]int64{},
 			},
 		},
+		{
+			name:        "internal error",
+			body:        `{"id": "Alloc", "type": "counter", "delta": 42}`,
+			contentType: "application/json",
+			err:         errors.New("storage error"),
+			want: want{
+				code:     500,
+				gauges:   map[string]float64{},
+				counters: map[string]int64{},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -246,11 +311,84 @@ func TestUpdateHandler_ByBody(t *testing.T) {
 			request.Header.Set("Content-Type", tt.contentType)
 
 			w := httptest.NewRecorder()
-			s := newStorage()
+			s := newStorage(tt.err)
 			h := NewUpdateHandler(s)
 
 			r := chi.NewRouter()
 			r.Post("/update", h.ByBody)
+			r.ServeHTTP(w, request)
+
+			result := w.Result()
+			assert.Equal(t, tt.want.code, result.StatusCode)
+			assert.EqualValues(t, tt.want.gauges, s.gauges)
+			assert.EqualValues(t, tt.want.counters, s.counters)
+		})
+	}
+}
+
+func TestUpdateHandler_Batch(t *testing.T) {
+	type want struct {
+		code     int
+		gauges   map[string]float64
+		counters map[string]int64
+	}
+
+	tests := []struct {
+		name string
+		body string
+		err  error
+		want want
+	}{
+		{
+			name: "applies batch",
+			body: `[{"id": "PollCount", "type": "counter", "delta": 42}, {"id": "Alloc", "type": "gauge", "value": 17.03}]`,
+			want: want{
+				code:     200,
+				gauges:   map[string]float64{"Alloc": 17.03},
+				counters: map[string]int64{"PollCount": 42},
+			},
+		},
+		{
+			name: "bad request on decode",
+			body: `[{"id": "PollCount", "type": "counter", "delta": 42}`,
+			want: want{
+				code:     400,
+				gauges:   map[string]float64{},
+				counters: map[string]int64{},
+			},
+		},
+		{
+			name: "bad request on validation",
+			body: `[{"id": "IsValid", "type": "bool", "value": true}]`,
+			want: want{
+				code:     400,
+				gauges:   map[string]float64{},
+				counters: map[string]int64{},
+			},
+		},
+		{
+			name: "internal error",
+			body: `[{"id": "PollCount", "type": "counter", "delta": 42}, {"id": "Alloc", "type": "gauge", "value": 17.03}]`,
+			err:  errors.New("storage error"),
+			want: want{
+				code:     500,
+				gauges:   map[string]float64{},
+				counters: map[string]int64{},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bodyReader := bytes.NewReader([]byte(tt.body))
+			request := httptest.NewRequest(http.MethodPost, "/updates", bodyReader)
+			request.Header.Set("Content-Type", "application/json")
+
+			w := httptest.NewRecorder()
+			s := newStorage(tt.err)
+			h := NewUpdateHandler(s)
+
+			r := chi.NewRouter()
+			r.Post("/updates", h.Batch)
 			r.ServeHTTP(w, request)
 
 			result := w.Result()
