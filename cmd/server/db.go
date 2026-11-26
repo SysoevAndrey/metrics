@@ -38,7 +38,7 @@ func newStore() (*store, error) {
 	}
 
 	return &store{
-		metrics: repositories.NewDBStorage(db),
+		metrics: repositories.NewDBStorage(db, nil),
 		pinger:  db,
 		closer:  db,
 	}, nil

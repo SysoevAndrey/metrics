@@ -4,8 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	models "github.com/SysoevAndrey/metrics/internal/model"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const (
@@ -24,14 +27,91 @@ const (
 )
 
 type DBStorage struct {
-	db *sql.DB
+	db          *sql.DB
+	retryConfig *RetryConfig
 }
 
-func NewDBStorage(db *sql.DB) *DBStorage {
-	return &DBStorage{db: db}
+type RetryConfig struct {
+	RetryCount int
+	RetryAfter RetryAfterFunc
+}
+
+type RetryAfterFunc func(attempt int) time.Duration
+
+func NewDBStorage(db *sql.DB, retryConfig *RetryConfig) *DBStorage {
+	config := newDefaultRetryConfig()
+
+	if retryConfig != nil && retryConfig.RetryCount != 0 {
+		config.RetryCount = retryConfig.RetryCount
+	}
+	if retryConfig != nil && retryConfig.RetryAfter != nil {
+		config.RetryAfter = retryConfig.RetryAfter
+	}
+
+	return &DBStorage{
+		db:          db,
+		retryConfig: config,
+	}
+}
+
+func newDefaultRetryConfig() *RetryConfig {
+	return &RetryConfig{
+		RetryCount: 3,
+		RetryAfter: func(attempt int) time.Duration {
+			return 2*time.Second*time.Duration(attempt) - time.Second
+		},
+	}
 }
 
 func (s *DBStorage) SetGauge(ctx context.Context, name string, value float64) error {
+	return s.withRetry(ctx, func() error {
+		return s.setGauge(ctx, name, value)
+	})
+}
+
+func (s *DBStorage) AddCounter(ctx context.Context, name string, value int64) error {
+	return s.withRetry(ctx, func() error {
+		return s.addCounter(ctx, name, value)
+	})
+}
+
+func (s *DBStorage) ApplyBatch(ctx context.Context, metrics []models.Metrics) error {
+	return s.withRetry(ctx, func() error {
+		return s.applyBatch(ctx, metrics)
+	})
+}
+
+func (s *DBStorage) GetGauge(ctx context.Context, name string) (float64, error) {
+	var gauge float64
+	err := s.withRetry(ctx, func() error {
+		var err error
+		gauge, err = s.getGauge(ctx, name)
+		return err
+	})
+	return gauge, err
+}
+
+func (s *DBStorage) GetCounter(ctx context.Context, name string) (int64, error) {
+	var counter int64
+	err := s.withRetry(ctx, func() error {
+		var err error
+		counter, err = s.getCounter(ctx, name)
+		return err
+	})
+	return counter, err
+}
+
+func (s *DBStorage) GetAll(ctx context.Context) (models.Snapshot, error) {
+	var sh models.Snapshot
+	err := s.withRetry(ctx, func() error {
+		var err error
+		sh, err = s.getAll(ctx)
+		return err
+	})
+	return sh, err
+}
+
+func (s *DBStorage) setGauge(ctx context.Context, name string, value float64) error {
 	_, err := s.db.ExecContext(
 		ctx,
 		setGaugeUpsert,
@@ -41,7 +121,7 @@ func (s *DBStorage) SetGauge(ctx context.Context, name string, value float64) er
 	return err
 }
 
-func (s *DBStorage) AddCounter(ctx context.Context, name string, value int64) error {
+func (s *DBStorage) addCounter(ctx context.Context, name string, value int64) error {
 	_, err := s.db.ExecContext(
 		ctx,
 		addCounterUpsert,
@@ -51,7 +131,7 @@ func (s *DBStorage) AddCounter(ctx context.Context, name string, value int64) er
 	return err
 }
 
-func (s *DBStorage) ApplyBatch(ctx context.Context, metrics []models.Metrics) error {
+func (s *DBStorage) applyBatch(ctx context.Context, metrics []models.Metrics) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -94,7 +174,7 @@ func (s *DBStorage) ApplyBatch(ctx context.Context, metrics []models.Metrics) er
 	return tx.Commit()
 }
 
-func (s *DBStorage) GetGauge(ctx context.Context, name string) (float64, error) {
+func (s *DBStorage) getGauge(ctx context.Context, name string) (float64, error) {
 	row := s.db.QueryRowContext(
 		ctx,
 		`
@@ -120,7 +200,7 @@ func (s *DBStorage) GetGauge(ctx context.Context, name string) (float64, error) 
 	return 0, models.ErrNotFound
 }
 
-func (s *DBStorage) GetCounter(ctx context.Context, name string) (int64, error) {
+func (s *DBStorage) getCounter(ctx context.Context, name string) (int64, error) {
 	row := s.db.QueryRowContext(
 		ctx,
 		`
@@ -146,7 +226,7 @@ func (s *DBStorage) GetCounter(ctx context.Context, name string) (int64, error) 
 	return 0, models.ErrNotFound
 }
 
-func (s *DBStorage) GetAll(ctx context.Context) (models.Snapshot, error) {
+func (s *DBStorage) getAll(ctx context.Context) (models.Snapshot, error) {
 	emptySnapshot := models.Snapshot{}
 
 	rows, err := s.db.QueryContext(
@@ -201,4 +281,37 @@ func (s *DBStorage) GetAll(ctx context.Context) (models.Snapshot, error) {
 		Gauges:   gauges,
 		Counters: counters,
 	}, nil
+}
+
+func (s *DBStorage) withRetry(ctx context.Context, fn func() error) error {
+	if s.retryConfig.RetryCount == 0 || s.retryConfig.RetryAfter == nil {
+		return fn()
+	}
+
+	var err error
+
+	for attempt := 0; attempt <= s.retryConfig.RetryCount; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return errors.Join(err, ctx.Err())
+			case <-time.After(s.retryConfig.RetryAfter(attempt)):
+			}
+		}
+
+		err = fn()
+		if err == nil {
+			return nil
+		}
+		if !isRetryable(err) {
+			return err
+		}
+	}
+
+	return err
+}
+
+func isRetryable(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgerrcode.IsConnectionException(pgErr.Code)
 }
