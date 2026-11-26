@@ -29,10 +29,10 @@ type Agent struct {
 }
 
 type clientConfig struct {
-	timeout          time.Duration
-	retryCount       int
-	retryWaitTime    time.Duration
-	retryMaxWaitTime time.Duration
+	timeout      time.Duration
+	retryCount   int
+	retryMaxWait time.Duration
+	retryStep    time.Duration
 }
 
 func NewAgent(pollInterval, reportInterval time.Duration, host string) *Agent {
@@ -49,10 +49,10 @@ func (a *Agent) Run() error {
 	collector := newCollector()
 
 	a.setupClient(clientConfig{
-		timeout:          200 * time.Millisecond,
-		retryCount:       3,
-		retryWaitTime:    200 * time.Millisecond,
-		retryMaxWaitTime: time.Second,
+		timeout:      200 * time.Millisecond,
+		retryCount:   3,
+		retryMaxWait: 5 * time.Second,
+		retryStep:    time.Second,
 	})
 
 	wg.Go(func() {
@@ -80,8 +80,10 @@ func (a *Agent) setupClient(config clientConfig) {
 		SetBaseURL("http://" + a.host).
 		SetTimeout(config.timeout).
 		SetRetryCount(config.retryCount).
-		SetRetryWaitTime(config.retryWaitTime).
-		SetRetryMaxWaitTime(config.retryMaxWaitTime).
+		SetRetryMaxWaitTime(config.retryMaxWait).
+		SetRetryAfter(func(c *resty.Client, r *resty.Response) (time.Duration, error) {
+			return 2*time.Duration(r.Request.Attempt)*config.retryStep - config.retryStep, nil
+		}).
 		AddRetryCondition(func(r *resty.Response, err error) bool {
 			return err != nil || r.StatusCode() >= http.StatusInternalServerError
 		})

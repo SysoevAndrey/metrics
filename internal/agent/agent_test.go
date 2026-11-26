@@ -12,10 +12,10 @@ import (
 )
 
 var testClientConfig = clientConfig{
-	timeout:          200 * time.Millisecond,
-	retryCount:       3,
-	retryWaitTime:    10 * time.Millisecond,
-	retryMaxWaitTime: 50 * time.Millisecond,
+	timeout:      200 * time.Millisecond,
+	retryCount:   3,
+	retryMaxWait: time.Second,
+	retryStep:    10 * time.Millisecond,
 }
 
 func TestAgent_sendMetrics(t *testing.T) {
