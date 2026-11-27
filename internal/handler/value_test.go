@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -41,25 +42,31 @@ func TestValueHandler_value(t *testing.T) {
 			name:    "not found #1",
 			storage: &storage{gauges: map[string]float64{}, counters: map[string]int64{}},
 			data:    models.Metrics{MType: "counter", ID: "PollCount"},
-			want:    want{err: ErrNotFound},
+			want:    want{err: models.ErrNotFound},
 		},
 		{
 			name:    "not found #2",
 			storage: &storage{gauges: map[string]float64{}, counters: map[string]int64{}},
 			data:    models.Metrics{MType: "gauge", ID: "Alloc"},
-			want:    want{err: ErrNotFound},
+			want:    want{err: models.ErrNotFound},
 		},
 		{
 			name:    "invalid type",
 			storage: &storage{gauges: map[string]float64{}, counters: map[string]int64{}},
 			data:    models.Metrics{MType: "bool", ID: "Valid"},
-			want:    want{err: ErrUnknownType},
+			want:    want{err: models.ErrUnknownType},
+		},
+		{
+			name:    "internal error",
+			storage: &storage{gauges: map[string]float64{}, counters: map[string]int64{}},
+			data:    models.Metrics{MType: "bool", ID: "Valid"},
+			want:    want{err: models.ErrUnknownType},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := NewValueHandler(tt.storage)
-			metrics, err := h.value(tt.data)
+			metrics, err := h.value(t.Context(), tt.data)
 
 			assert.ErrorIs(t, err, tt.want.err)
 			assert.EqualValues(t, tt.want.metrics, metrics)
@@ -107,6 +114,12 @@ func TestValueHandler_ByPath(t *testing.T) {
 			initState: &storage{gauges: map[string]float64{}, counters: map[string]int64{"PollCount": 42}},
 			path:      "/value/gauge/PollCount",
 			code:      404,
+		},
+		{
+			name:      "internal error",
+			initState: &storage{gauges: map[string]float64{}, counters: map[string]int64{"PollCount": 42}, err: errors.New("storage error")},
+			path:      "/value/counter/PollCount",
+			code:      500,
 		},
 	}
 
@@ -175,6 +188,12 @@ func TestValueHandler_ByBody(t *testing.T) {
 			initState: &storage{gauges: map[string]float64{}, counters: map[string]int64{"PollCount": 42}},
 			body:      `{"id": "PollCount", "type": "gauge"}`,
 			code:      404,
+		},
+		{
+			name:      "internal error",
+			initState: &storage{gauges: map[string]float64{}, counters: map[string]int64{"PollCount": 42}, err: errors.New("storage error")},
+			body:      `{"id": "PollCount", "type": "counter"}`,
+			code:      500,
 		},
 	}
 

@@ -6,6 +6,7 @@ import (
 
 	models "github.com/SysoevAndrey/metrics/internal/model"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type state struct {
@@ -40,7 +41,7 @@ func TestMemStorage_SetGauge(t *testing.T) {
 				gauges:   tt.initState.gauges,
 				counters: tt.initState.counters,
 			}
-			ms.SetGauge(tt.key, tt.value)
+			ms.SetGauge(t.Context(), tt.key, tt.value)
 			assert.Equal(t, tt.value, ms.gauges[tt.key])
 		})
 	}
@@ -76,8 +77,69 @@ func TestMemStorage_AddCounter(t *testing.T) {
 				gauges:   tt.initState.gauges,
 				counters: tt.initState.counters,
 			}
-			ms.AddCounter(tt.key, tt.value)
+			ms.AddCounter(t.Context(), tt.key, tt.value)
 			assert.Equal(t, tt.want, ms.counters[tt.key])
+		})
+	}
+}
+
+func TestMemStorage_ApplyBatch(t *testing.T) {
+	initState := state{gauges: map[string]float64{"Alloc": 17.03}, counters: map[string]int64{"PollCount": 17}}
+
+	tests := []struct {
+		name      string
+		initState state
+		metrics   []models.Metrics
+		wantState state
+		wantErr   bool
+	}{
+		{
+			name:      "applies batch",
+			initState: initState,
+			metrics: []models.Metrics{
+				{ID: "Alloc", MType: models.Gauge, Value: new(20.05)},
+				{ID: "PollCount", MType: models.Counter, Delta: new(int64(3))},
+			},
+			wantState: state{gauges: map[string]float64{"Alloc": 20.05}, counters: map[string]int64{"PollCount": 20}},
+			wantErr:   false,
+		},
+		{
+			name:      "throws error on missing value #1",
+			initState: initState,
+			metrics:   []models.Metrics{{ID: "Alloc", MType: models.Gauge}},
+			wantState: initState,
+			wantErr:   true,
+		},
+		{
+			name:      "throws error on missing value #2",
+			initState: initState,
+			metrics:   []models.Metrics{{ID: "PollCount", MType: models.Counter}},
+			wantState: initState,
+			wantErr:   true,
+		},
+		{
+			name:      "throws error on unknown type",
+			initState: initState,
+			metrics:   []models.Metrics{{ID: "IsValid", MType: "bool"}},
+			wantState: initState,
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ms := MemStorage{
+				gauges:   tt.initState.gauges,
+				counters: tt.initState.counters,
+			}
+			err := ms.ApplyBatch(t.Context(), tt.metrics)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.EqualValues(t, tt.wantState.counters, ms.counters)
+			assert.EqualValues(t, tt.wantState.gauges, ms.gauges)
 		})
 	}
 }
@@ -106,7 +168,8 @@ func TestMemStorage_GetAll(t *testing.T) {
 				gauges:   tt.initState.gauges,
 				counters: tt.initState.counters,
 			}
-			sh := ms.GetAll()
+			sh, err := ms.GetAll(t.Context())
+			require.NoError(t, err)
 
 			assert.EqualValues(t, tt.want.Gauges, sh.Gauges)
 			assert.EqualValues(t, tt.want.Counters, sh.Counters)

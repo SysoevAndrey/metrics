@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"context"
 	"maps"
 	"sync"
 
@@ -28,33 +29,66 @@ func NewMemStorage() *MemStorage {
 	}
 }
 
-func (ms *MemStorage) SetGauge(name string, value float64) {
+func (ms *MemStorage) SetGauge(ctx context.Context, name string, value float64) error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	ms.gauges[name] = value
+	return nil
 }
 
-func (ms *MemStorage) AddCounter(name string, value int64) {
+func (ms *MemStorage) AddCounter(ctx context.Context, name string, value int64) error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	ms.counters[name] += value
+	return nil
 }
 
-func (ms *MemStorage) GetCounter(name string) (int64, bool) {
+func (ms *MemStorage) ApplyBatch(ctx context.Context, metrics []models.Metrics) error {
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Counter:
+			if metric.Delta == nil {
+				return models.ErrMissingValue
+			}
+			if err := ms.AddCounter(ctx, metric.ID, *metric.Delta); err != nil {
+				return err
+			}
+		case models.Gauge:
+			if metric.Value == nil {
+				return models.ErrMissingValue
+			}
+			if err := ms.SetGauge(ctx, metric.ID, *metric.Value); err != nil {
+				return err
+			}
+		default:
+			return models.ErrUnknownType
+		}
+	}
+
+	return nil
+}
+
+func (ms *MemStorage) GetCounter(ctx context.Context, name string) (int64, error) {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	counter, exists := ms.counters[name]
-	return counter, exists
+	if !exists {
+		return 0, models.ErrNotFound
+	}
+	return counter, nil
 }
 
-func (ms *MemStorage) GetGauge(name string) (float64, bool) {
+func (ms *MemStorage) GetGauge(ctx context.Context, name string) (float64, error) {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	gauge, exists := ms.gauges[name]
-	return gauge, exists
+	if !exists {
+		return 0, models.ErrNotFound
+	}
+	return gauge, nil
 }
 
-func (ms *MemStorage) GetAll() models.Snapshot {
+func (ms *MemStorage) GetAll(ctx context.Context) (models.Snapshot, error) {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
@@ -63,5 +97,5 @@ func (ms *MemStorage) GetAll() models.Snapshot {
 	maps.Copy(sh.Gauges, ms.gauges)
 	maps.Copy(sh.Counters, ms.counters)
 
-	return *sh
+	return *sh, nil
 }

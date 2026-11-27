@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -38,9 +40,15 @@ func (h *UpdateHandler) ByPath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.update(*metrics); err != nil {
+	err = h.update(r.Context(), *metrics)
+	if errors.Is(err, models.ErrMissingValue) {
 		logger.Log.Debug(err.Error(), zap.String("id", metrics.ID))
 		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		logger.Log.Debug(err.Error(), zap.String("id", metrics.ID))
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
@@ -57,31 +65,76 @@ func (h *UpdateHandler) ByBody(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.update(metrics); err != nil {
+	err := h.update(r.Context(), metrics)
+	if errors.Is(err, models.ErrMissingValue) || errors.Is(err, models.ErrUnknownType) {
 		logger.Log.Debug(err.Error(), zap.String("id", metrics.ID))
 		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		logger.Log.Debug(err.Error(), zap.String("id", metrics.ID))
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *UpdateHandler) update(metrics models.Metrics) error {
-	switch metrics.MType {
-	case models.Counter:
-		if metrics.Delta == nil {
-			return fmt.Errorf("no counter delta found for: %s", metrics.ID)
-		}
-		h.storage.AddCounter(metrics.ID, *metrics.Delta)
-	case models.Gauge:
-		if metrics.Value == nil {
-			return fmt.Errorf("no gauge value found for: %s", metrics.ID)
-		}
-		h.storage.SetGauge(metrics.ID, *metrics.Value)
-	default:
-		return fmt.Errorf("unknown metric type: %q", metrics.MType)
+func (h *UpdateHandler) Batch(w http.ResponseWriter, r *http.Request) {
+	var metrics []models.Metrics
+
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(&metrics); err != nil {
+		logger.Log.Debug("cannot decode request JSON body", zap.Error(err))
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
+	for _, metric := range metrics {
+		if err := validateMetric(metric); err != nil {
+			logger.Log.Error(err.Error(), zap.String("id", metric.ID))
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+	}
+
+	if err := h.storage.ApplyBatch(r.Context(), metrics); err != nil {
+		logger.Log.Error(err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *UpdateHandler) update(ctx context.Context, metric models.Metrics) error {
+	if err := validateMetric(metric); err != nil {
+		return err
+	}
+
+	switch metric.MType {
+	case models.Counter:
+		return h.storage.AddCounter(ctx, metric.ID, *metric.Delta)
+	case models.Gauge:
+		return h.storage.SetGauge(ctx, metric.ID, *metric.Value)
+	}
+
+	return nil
+}
+
+func validateMetric(metric models.Metrics) error {
+	switch metric.MType {
+	case models.Counter:
+		if metric.Delta == nil {
+			return fmt.Errorf("%w for counter: %s", models.ErrMissingValue, metric.ID)
+		}
+	case models.Gauge:
+		if metric.Value == nil {
+			return fmt.Errorf("%w for gauge: %s", models.ErrMissingValue, metric.ID)
+		}
+	default:
+		return fmt.Errorf("%w: %q", models.ErrUnknownType, metric.MType)
+	}
 	return nil
 }
 
@@ -109,7 +162,7 @@ func newMetrics(id, mType, rawValue string) (*models.Metrics, error) {
 		}
 		m.Value = &value
 	default:
-		return nil, ErrUnknownType
+		return nil, models.ErrUnknownType
 	}
 
 	return &m, nil
