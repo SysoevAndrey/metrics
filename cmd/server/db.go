@@ -7,11 +7,14 @@ import (
 	"strings"
 
 	handlers "github.com/SysoevAndrey/metrics/internal/handler"
+	"github.com/SysoevAndrey/metrics/internal/logger"
 	repositories "github.com/SysoevAndrey/metrics/internal/repository"
+	"github.com/SysoevAndrey/metrics/migrations"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"go.uber.org/zap"
 )
 
 type store struct {
@@ -45,18 +48,24 @@ func newStore() (*store, error) {
 }
 
 func runMigrations(db *sql.DB) error {
-	driver, err := postgres.WithInstance(db, &postgres.Config{})
+	srcDriver, err := iofs.New(migrations.FS, ".")
 	if err != nil {
 		return err
 	}
 
-	m, err := migrate.NewWithDatabaseInstance("file://migrations", "postgres", driver)
+	dbDriver, err := postgres.WithInstance(db, &postgres.Config{})
+	if err != nil {
+		return err
+	}
+
+	m, err := migrate.NewWithInstance("iofs", srcDriver, "postgres", dbDriver)
 	if err != nil {
 		return err
 	}
 
 	err = m.Up()
 	if errors.Is(err, migrate.ErrNoChange) {
+		logger.Log.Info("skipping migrations", zap.String("reason", "no new migrations found"))
 		return nil
 	}
 	return err
