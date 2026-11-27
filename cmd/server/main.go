@@ -42,7 +42,7 @@ func run() error {
 		return err
 	}
 
-	router, err := newRouter(*store, hook)
+	router, err := newRouter(ctx, *store, hook)
 	if err != nil {
 		return err
 	}
@@ -51,7 +51,7 @@ func run() error {
 	return http.ListenAndServe(config.Host, router)
 }
 
-func newRouter(store store, hook func(context.Context) error) (http.Handler, error) {
+func newRouter(ctx context.Context, store store, hook func(context.Context) error) (http.Handler, error) {
 	r := chi.NewRouter()
 
 	valueHandler := handlers.NewValueHandler(store.metrics)
@@ -77,6 +77,7 @@ func newRouter(store store, hook func(context.Context) error) (http.Handler, err
 	})
 
 	r.Route("/updates", func(r chi.Router) {
+		r.Use(middleware.WithIdempotency(ctx))
 		if hook != nil {
 			r.Use(middleware.WithPostHook(hook))
 		}

@@ -25,26 +25,55 @@ func TestAgent_sendMetrics(t *testing.T) {
 		counters    map[string]int64
 		mode        requestMode
 		pathToThrow string
+		thrownErr   int
+		wantMode    requestMode
+		wantCalls   int
 	}{
 		{
-			name:     "sends all metrics sequentially",
-			gauges:   map[string]float64{"Alloc": 17.03},
-			counters: map[string]int64{"PollCount": 42},
-			mode:     sequential,
+			name:      "sends all metrics sequentially",
+			gauges:    map[string]float64{"Alloc": 17.03},
+			counters:  map[string]int64{"PollCount": 42},
+			mode:      sequential,
+			wantMode:  sequential,
+			wantCalls: 2,
 		},
 		{
 			name:        "error doesn't block sending sequentially",
 			gauges:      map[string]float64{"Alloc": 17.03},
 			counters:    map[string]int64{"PollCount": 42},
 			pathToThrow: "/update/counter/PollCount/42",
+			thrownErr:   http.StatusBadRequest,
 			mode:        sequential,
+			wantMode:    sequential,
+			wantCalls:   2,
 		},
 		{
-			name:        "sends all metrics using batch",
+			name:      "sends all metrics using batch",
+			gauges:    map[string]float64{"Alloc": 17.03},
+			counters:  map[string]int64{"PollCount": 42},
+			mode:      batch,
+			wantMode:  batch,
+			wantCalls: 1,
+		},
+		{
+			name:        "switches mode to sequential on 404 error",
 			gauges:      map[string]float64{"Alloc": 17.03},
 			counters:    map[string]int64{"PollCount": 42},
-			pathToThrow: "/update/counter/PollCount/42",
+			pathToThrow: "/updates",
+			thrownErr:   http.StatusNotFound,
 			mode:        batch,
+			wantMode:    sequential,
+			wantCalls:   3,
+		},
+		{
+			name:        "doesn't switch mode on 500 error",
+			gauges:      map[string]float64{"Alloc": 17.03},
+			counters:    map[string]int64{"PollCount": 42},
+			pathToThrow: "/updates",
+			thrownErr:   http.StatusInternalServerError,
+			mode:        batch,
+			wantMode:    batch,
+			wantCalls:   4,
 		},
 	}
 
@@ -55,7 +84,7 @@ func TestAgent_sendMetrics(t *testing.T) {
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
 				if r.URL.Path == tt.pathToThrow {
-					w.WriteHeader(http.StatusBadRequest)
+					w.WriteHeader(tt.thrownErr)
 					return
 				}
 				w.WriteHeader(http.StatusOK)
@@ -68,16 +97,11 @@ func TestAgent_sendMetrics(t *testing.T) {
 			agent := NewAgent(0, 0, host)
 			agent.setupClient(testClientConfig)
 
-			agent.sendMetrics(tt.counters, tt.gauges, tt.mode)
+			agent.mode = tt.mode
+			agent.sendMetrics(tt.counters, tt.gauges)
 
-			switch tt.mode {
-			case sequential:
-				assert.Equal(t, len(tt.counters)+len(tt.gauges), calls)
-			case batch:
-				assert.Equal(t, 1, calls)
-			default:
-				t.Error("unknown mode")
-			}
+			assert.Equal(t, tt.wantMode, agent.mode)
+			assert.Equal(t, tt.wantCalls, calls)
 		})
 	}
 }
@@ -99,9 +123,11 @@ func TestAgent_sendRequest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var calls int
+			keys := []string{}
 
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
+				keys = append(keys, r.Header.Get("Idempotency-Key"))
 				if calls <= tt.failCount {
 					w.WriteHeader(tt.failStatus)
 					return
@@ -118,6 +144,13 @@ func TestAgent_sendRequest(t *testing.T) {
 			err := agent.sendRequest("/", []byte{})
 
 			assert.Equal(t, tt.wantCalls, calls)
+			assert.Len(t, keys, tt.wantCalls)
+
+			key := keys[0]
+			assert.NotEmpty(t, key)
+			for i := 1; i < len(keys); i++ {
+				assert.Equal(t, key, keys[i])
+			}
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -126,4 +159,28 @@ func TestAgent_sendRequest(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("changes key between requests", func(t *testing.T) {
+		keys := []string{}
+
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			keys = append(keys, r.Header.Get("Idempotency-Key"))
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer ts.Close()
+
+		host, found := strings.CutPrefix(ts.URL, "http://")
+		require.True(t, found)
+
+		agent := NewAgent(0, 0, host)
+		agent.setupClient(testClientConfig)
+
+		err := agent.sendRequest("/", []byte{})
+		require.NoError(t, err)
+		err = agent.sendRequest("/", []byte{})
+		require.NoError(t, err)
+
+		assert.Len(t, keys, 2)
+		assert.NotEqual(t, keys[0], keys[1])
+	})
 }

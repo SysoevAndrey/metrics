@@ -3,7 +3,9 @@ package agent
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -26,6 +28,7 @@ type Agent struct {
 	reportInterval time.Duration
 	host           string
 	client         *resty.Client
+	mode           requestMode
 }
 
 type clientConfig struct {
@@ -35,12 +38,21 @@ type clientConfig struct {
 	retryStep    time.Duration
 }
 
+type APIError struct {
+	StatusCode int
+}
+
+func (ae *APIError) Error() string {
+	return fmt.Sprintf("status: %d", ae.StatusCode)
+}
+
 func NewAgent(pollInterval, reportInterval time.Duration, host string) *Agent {
 	return &Agent{
 		pollInterval:   pollInterval,
 		reportInterval: reportInterval,
 		host:           host,
 		client:         resty.New(),
+		mode:           batch,
 	}
 }
 
@@ -65,7 +77,7 @@ func (a *Agent) Run() error {
 	wg.Go(func() {
 		for {
 			counters, gauges := collector.GetSnapshot()
-			a.sendMetrics(counters, gauges, batch)
+			a.sendMetrics(counters, gauges)
 			time.Sleep(a.reportInterval)
 		}
 	})
@@ -89,7 +101,7 @@ func (a *Agent) setupClient(config clientConfig) {
 		})
 }
 
-func (a *Agent) sendMetrics(counters map[string]int64, gauges map[string]float64, mode requestMode) {
+func (a *Agent) sendMetrics(counters map[string]int64, gauges map[string]float64) {
 	metrics := make([]models.Metrics, 0, len(counters)+len(gauges))
 
 	for name, value := range counters {
@@ -100,13 +112,13 @@ func (a *Agent) sendMetrics(counters map[string]int64, gauges map[string]float64
 		metrics = append(metrics, models.Metrics{ID: name, MType: models.Gauge, Value: &value})
 	}
 
-	switch mode {
+	switch a.mode {
 	case batch:
 		a.sendMetricsBatch(metrics)
 	case sequential:
 		a.sendMetricsSequential(metrics)
 	default:
-		log.Printf("unknown mode: %d", mode)
+		log.Printf("unknown mode: %d", a.mode)
 	}
 }
 
@@ -121,7 +133,16 @@ func (a *Agent) sendMetricsBatch(metrics []models.Metrics) {
 		log.Printf("failed to compress metrics: %v", err)
 		return
 	}
-	if err = a.sendRequest("/updates", body); err != nil {
+
+	err = a.sendRequest("/updates", body)
+
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+		log.Println("got 404 error. switching to sequential mode")
+		a.mode = sequential
+		a.sendMetricsSequential(metrics)
+	}
+	if err != nil {
 		log.Println(err)
 	}
 }
@@ -131,6 +152,7 @@ func (a *Agent) sendMetricsSequential(metrics []models.Metrics) {
 		body, err := compressBody(metric)
 		if err != nil {
 			log.Printf("failed to compress metrics: %v", err)
+			continue
 		}
 		if err = a.sendRequest("/update", body); err != nil {
 			log.Println(err)
@@ -142,6 +164,7 @@ func (a *Agent) sendRequest(path string, body []byte) error {
 	resp, err := a.client.R().
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Content-Encoding", "gzip").
+		SetHeader("Idempotency-Key", rand.Text()).
 		SetBody(body).
 		Post(path)
 
@@ -149,7 +172,7 @@ func (a *Agent) sendRequest(path string, body []byte) error {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 	if resp.IsError() {
-		return fmt.Errorf("request error: %v", resp.Status())
+		return fmt.Errorf("request error: %w", &APIError{StatusCode: resp.StatusCode()})
 	}
 	return nil
 }
