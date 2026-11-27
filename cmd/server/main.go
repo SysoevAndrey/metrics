@@ -60,6 +60,7 @@ func newRouter(store store, hook func(context.Context) error) (http.Handler, err
 	if err != nil {
 		return nil, err
 	}
+	pingHandler := handlers.NewPingHandler(store.pinger)
 
 	r.Use(middleware.WithLogging)
 	r.Use(middleware.WithCompression)
@@ -87,11 +88,7 @@ func newRouter(store store, hook func(context.Context) error) (http.Handler, err
 		r.Get("/{type}/{name}", valueHandler.ByPath)
 		r.Post("/", valueHandler.ByBody)
 	})
-
-	if store.pinger != nil {
-		pingHandler := handlers.NewPingHandler(store.pinger)
-		r.Get("/ping", pingHandler.Ping)
-	}
+	r.Get("/ping", pingHandler.Ping)
 
 	return r, nil
 }

@@ -22,6 +22,12 @@ func NewPingHandler(p Pinger) *PingHandler {
 }
 
 func (ph *PingHandler) Ping(w http.ResponseWriter, r *http.Request) {
+	if ph.pinger == nil {
+		logger.Log.Warn("cannot ping db", zap.String("reason", "db is not configured"))
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
 	ctx := r.Context()
 	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
